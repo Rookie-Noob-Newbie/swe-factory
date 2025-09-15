@@ -5,7 +5,7 @@ Your automated factory for GitHub Issue Resolution Training Data and Evaluation 
 [![SVG Banners](https://svg-banners.vercel.app/api?type=origin&text1=SWE-Factory%20🧑‍💻&text2=✨%20Build%20Your%20GitHub%20Issue%20Resolution%20Dataset%2C%20Right%20Now!&width=900&height=200)](https://github.com/Akshay090/svg-banners)
 
 ## 📰 News
-* **[Sep. 15, 2024]**: We release SWE-Factory 1.5, which is more robust and has a higher success rate.
+* **[Sep. 15, 2025]**: We release SWE-Factory 1.5, which is more robust and has a higher success rate.
 
 
 ## ✨ Key Features
