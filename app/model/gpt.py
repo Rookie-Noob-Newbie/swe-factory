@@ -418,6 +418,12 @@ class Qwen25_72B(OpenaiModel):
     def __init__(self):
         super().__init__("Qwen/Qwen2.5-72B-Instruct-128K", 4096,0.00000057,  0.00000057)
         self.note = "Qwen2.5-72B."
+
+class Qwen3_235(OpenaiModel):
+    def __init__(self):
+        # Custom Qwen3-235 via OpenAI-compatible endpoint
+        super().__init__("qwen3-235", 4096, 0.0, 0.0)
+        self.note = "Custom Qwen3-235."
         
 class DeepSeekV25(OpenaiModel):
     def __init__(self):
