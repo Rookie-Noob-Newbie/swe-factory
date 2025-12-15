@@ -111,6 +111,8 @@ def process_repo_task(task: Dict, testbed: str, repo_cache: Dict[str, str]) -> D
             shutil.copytree(cached_repo, repo_dir, dirs_exist_ok=True)
         else:
             run_command(["git", "clone", cached_repo, repo_dir], capture_output=True)
+        # mark the working dir as safe to avoid ownership warnings
+        run_command(["git", "config", "--global", "--add", "safe.directory", repo_dir], capture_output=True)
         with cd(repo_dir):
             run_command(["git", "checkout", base_commit], capture_output=True)
         version = get_version_by_git(repo_dir)
