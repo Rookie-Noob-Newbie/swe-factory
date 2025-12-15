@@ -109,6 +109,9 @@ def main(args, subparser_dest_attr_name: str = "command"):
     globals.disable_download_test_resources= args.disable_download_test_resources
 
     globals.using_ubuntu_only = args.using_ubuntu_only
+
+    # New: allow skipping all docker operations (generation only)
+    globals.disable_all_docker = getattr(args, "disable_all_docker", False)
     
     subcommand = getattr(args, subparser_dest_attr_name)
     if subcommand == "swe-bench":
@@ -364,6 +367,12 @@ def add_task_related_args(parser: ArgumentParser) -> None:
         action="store_true",
         default=False,
         help="Enable layered code search.",
+    )
+    parser.add_argument(
+        "--disable-all-docker",
+        action="store_true",
+        default=False,
+        help="Skip all docker operations (do not build images or run containers); still generates Dockerfile/eval.sh.",
     )
     parser.add_argument(
         "--task-batch",
@@ -721,7 +730,9 @@ def do_inference(
     task_output_dir: str,
     print_callback: Callable[[dict], None] | None = None,
 ) -> bool:
-    client = docker.from_env()
+    client = None
+    if not getattr(globals, "disable_all_docker", False):
+        client = docker.from_env()
     apputils.create_dir_if_not_exists(task_output_dir)
     # github_link = f'https://github.com/{python_task.repo_name}.git'
     commit_hash = python_task.commit
@@ -747,7 +758,7 @@ def do_inference(
                                         globals.results_path,
                                         disable_memory_pool = globals.disable_memory_pool,
                                         disable_context_retrieval= globals.disable_context_retrieval,
-                                        disable_run_test= globals.disable_run_test,
+                                        disable_run_test= globals.disable_run_test or globals.disable_all_docker,
                                         disable_download_test_resources = globals.disable_download_test_resources,
                                         using_ubuntu_only = globals.using_ubuntu_only,
                                         )

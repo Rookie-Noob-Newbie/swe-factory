@@ -135,9 +135,23 @@ class TestAnalysisAgent(Agent):
         test_log_output_dir = self.get_latest_test_analysis_output_dir()
         os.makedirs(test_log_output_dir,exist_ok=True)
         intent = FunctionCallIntent("setup_docker_and_run_test", {}, None)
-        tool_output, _, success = self.dispatch_intent(intent)
-        build_image_status = False
-        if 'Image built successfully!' not in tool_output:
+        if self.client is None:
+            # Skip docker/test execution if client is not available (disable_all_docker)
+            tool_output = "Docker operations disabled (no client provided)."
+            success = False
+            build_image_status = False
+        else:
+            tool_output, _, success = self.dispatch_intent(intent)
+            build_image_status = success and ("Image built successfully" in tool_output)
+        if self.client is None:
+            print_acr(
+                'Docker disabled; skipping build/run.',
+                f"Task {self.task.task_id} Iteration ROUND {self.iteration_num}  test analysis",
+                print_callback=print_callback,
+            )
+            error_in_building_dockerfile = f'Docker is disabled or unavailable. Generated Dockerfile/eval.sh only.\n{tool_output}\n\n'
+            self.add_user_message(error_in_building_dockerfile)
+        elif 'Image built successfully!' not in tool_output:
             # fail to build image. go to dockefile refine.
             print_acr(
                 'Build Image Failure!',
@@ -154,7 +168,6 @@ class TestAnalysisAgent(Agent):
                 print_callback=print_callback,
             )
             test_log = self.get_test_log_with_line_numbers()
-            # self.add_user_message(f'Eval script (We omit details of test patch):\n{self.eval_script_skeleton}\n\n')
             self.add_user_message(test_log)
         else:
             logger.error(tool_output)
