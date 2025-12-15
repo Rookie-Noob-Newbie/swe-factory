@@ -161,10 +161,13 @@ class OpenaiModel(Model):
 
         assert self.client is not None
         if 'qwen' in self.name.lower():
-            if self.total_tokens *60> 40000*(self.start_time-time.time()):
-                waiting_time = self.total_tokens *60/40000-(self.start_time-time.time())
-                logger.info(f'wating for {waiting_time} seconds!')
-                time.sleep(waiting_time)
+            # simple rate-limit guard: ~40k tokens/minute
+            elapsed = time.time() - self.start_time
+            if elapsed > 0 and (self.total_tokens * 60) > (40000 * elapsed):
+                waiting_time = (self.total_tokens * 60 / 40000) - elapsed
+                if waiting_time > 0:
+                    logger.info(f"waiting for {waiting_time} seconds!")
+                    time.sleep(waiting_time)
                 
         try:
             if tools is not None and len(tools) == 1:
