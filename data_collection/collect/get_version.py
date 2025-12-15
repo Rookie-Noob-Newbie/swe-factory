@@ -99,13 +99,18 @@ def process_repo_task(task: Dict, testbed: str, repo_cache: Dict[str, str]) -> D
     repo = task["repo"]
     base_commit = task["base_commit"]
     repo_dir = os.path.join(testbed, instance_id)
-    os.makedirs(repo_dir, exist_ok=True)
+    if os.path.exists(repo_dir):
+        shutil.rmtree(repo_dir, ignore_errors=True)
 
     try:
         cached_repo = repo_cache.get(repo)
         if not cached_repo or not os.path.exists(cached_repo):
             raise RuntimeError(f"Missing cached repo for {repo}")
-        shutil.copytree(cached_repo, repo_dir, dirs_exist_ok=True)
+        # If cache has a working tree (.git present), copy; otherwise treat as bare and clone
+        if os.path.isdir(os.path.join(cached_repo, ".git")):
+            shutil.copytree(cached_repo, repo_dir, dirs_exist_ok=True)
+        else:
+            run_command(["git", "clone", cached_repo, repo_dir], capture_output=True)
         with cd(repo_dir):
             run_command(["git", "checkout", base_commit], capture_output=True)
         version = get_version_by_git(repo_dir)
