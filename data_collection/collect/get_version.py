@@ -24,6 +24,19 @@ def run_command(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
         print(f"Error running command: {cmd}, {e}")
         raise
 
+def is_git_repo_path(path: str) -> bool:
+    """
+    Check whether a path looks like a git repository.
+    Supports normal clones (with .git/) and bare repos (no .git directory).
+    """
+    if not os.path.isdir(path):
+        return False
+    if os.path.isdir(os.path.join(path, ".git")):
+        return True
+    head = os.path.join(path, "HEAD")
+    objects = os.path.join(path, "objects")
+    return os.path.isfile(head) and os.path.isdir(objects)
+
 def get_version_by_git(cloned_dir: str) -> str:
     if not os.path.isdir(cloned_dir):
         raise NotADirectoryError(f"Invalid directory: {cloned_dir}")
@@ -61,7 +74,7 @@ def prepare_repo_cache(tasks: List[Dict], cache_dir: str, local_cache_dir: Optio
                 os.path.join(local_cache_dir, repo.split("/")[-1]),
                 os.path.join(local_cache_dir, repo.split("/")[-1] + ".git"),
             ]
-            local_path = next((p for p in candidates if os.path.isdir(p) and os.path.isdir(os.path.join(p, ".git"))), None)
+            local_path = next((p for p in candidates if is_git_repo_path(p)), None)
             if local_path:
                 repo_cache[repo] = os.path.abspath(local_path)
                 print(f"Reusing cached repo: {repo}")
