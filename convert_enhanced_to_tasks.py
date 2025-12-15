@@ -43,7 +43,9 @@ def extract_language(segments, pr_header):
         return pr_header["language"]
     ctx = next((s for s in segments if s.get("segment_type") == "context"), {})
     intro = ctx.get("repo_intro", "")
-    m = re.search(r"Language:\\s*([A-Za-z0-9_+.-]+)", intro)
+    # strip common markdown markers and match more loosely
+    intro_clean = re.sub(r"[`*_]", "", intro)
+    m = re.search(r"language[^\\w]{0,3}[:\\-]\\s*([A-Za-z0-9_+.-]+)", intro_clean, flags=re.IGNORECASE)
     return m.group(1) if m else ""
 
 def collect_base_commit(segments):
