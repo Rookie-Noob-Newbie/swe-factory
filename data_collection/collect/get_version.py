@@ -5,7 +5,7 @@ import re
 import json
 import argparse
 from contextlib import contextmanager
-from typing import List, Dict
+from typing import List, Dict, Optional
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 @contextmanager
@@ -43,12 +43,29 @@ def get_instances(instance_path: str) -> List[Dict]:
     with open(instance_path, encoding="utf-8") as f:
         return json.load(f)
 
-def prepare_repo_cache(tasks: List[Dict], cache_dir: str) -> Dict[str, str]:
+def prepare_repo_cache(tasks: List[Dict], cache_dir: str, local_cache_dir: Optional[str] = None, skip_missing_repo: bool = False) -> Dict[str, str]:
     os.makedirs(cache_dir, exist_ok=True)
     repo_cache = {}
     for task in tasks:
         repo = task["repo"]
         if repo in repo_cache:
+            continue
+        if local_cache_dir:
+            owner_repo_flat = repo.replace("/", "__")
+            candidates = [
+                os.path.join(local_cache_dir, owner_repo_flat),
+                os.path.join(local_cache_dir, *repo.split("/")),
+                os.path.join(local_cache_dir, repo.split("/")[-1]),
+            ]
+            local_path = next((p for p in candidates if os.path.isdir(p) and os.path.isdir(os.path.join(p, ".git"))), None)
+            if local_path:
+                repo_cache[repo] = os.path.abspath(local_path)
+                print(f"Reusing cached repo: {repo}")
+                continue
+            if skip_missing_repo:
+                print(f"Skip missing local repo: {repo}")
+                continue
+            print(f"Missing local repo for {repo} and cloning is disabled.")
             continue
         repo_url = f"https://github.com/{repo}.git"
         local_path = os.path.join(cache_dir, repo.replace("/", "__"))
@@ -122,6 +139,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--instance_path", type=str, required=True, help="Path to input task file (.json or .jsonl)")
     parser.add_argument("--testbed", type=str, required=True, help="Temp working directory for cloning repos")
+    parser.add_argument("--local-cache-dir", type=str, default=None, help="Path to pre-cloned repos (skip cloning when present)")
+    parser.add_argument("--skip-missing-repo", action="store_true", help="When using --local-cache-dir, skip tasks whose repo is not found locally")
     parser.add_argument("--max-workers", type=int, default=10, help="Number of processes (default: 4)")
     args = parser.parse_args()
 
@@ -138,7 +157,15 @@ def main():
             return
 
     repo_cache_dir = os.path.join(args.testbed, "_cache")
-    repo_cache = prepare_repo_cache(tasks, repo_cache_dir)
+    repo_cache = prepare_repo_cache(
+        tasks,
+        repo_cache_dir,
+        local_cache_dir=args.local_cache_dir,
+        skip_missing_repo=args.skip_missing_repo,
+    )
+
+    if args.local_cache_dir and args.skip_missing_repo:
+        tasks = [t for t in tasks if t["repo"] in repo_cache]
 
     results, failures = process_repos(tasks, args.testbed, repo_cache, args.max_workers)
 
