@@ -146,7 +146,9 @@ def process_repos(tasks: List[Dict], testbed: str, repo_cache: Dict[str, str], m
     return results, failures
 
 def save_results(results: List[Dict], output_path: str):
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    dirpath = os.path.dirname(output_path)
+    if dirpath:
+        os.makedirs(dirpath, exist_ok=True)
     if output_path.endswith((".jsonl", ".jsonl.all")):
         with open(output_path, "w", encoding="utf-8") as f:
             for r in results:
