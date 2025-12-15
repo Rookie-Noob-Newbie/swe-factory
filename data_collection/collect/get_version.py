@@ -52,10 +52,14 @@ def prepare_repo_cache(tasks: List[Dict], cache_dir: str, local_cache_dir: Optio
             continue
         if local_cache_dir:
             owner_repo_flat = repo.replace("/", "__")
+            # 支持多种本地布局，包括 repo.git 目录
             candidates = [
                 os.path.join(local_cache_dir, owner_repo_flat),
+                os.path.join(local_cache_dir, owner_repo_flat + ".git"),
                 os.path.join(local_cache_dir, *repo.split("/")),
+                os.path.join(local_cache_dir, *repo.split("/")) + ".git",
                 os.path.join(local_cache_dir, repo.split("/")[-1]),
+                os.path.join(local_cache_dir, repo.split("/")[-1] + ".git"),
             ]
             local_path = next((p for p in candidates if os.path.isdir(p) and os.path.isdir(os.path.join(p, ".git"))), None)
             if local_path:
