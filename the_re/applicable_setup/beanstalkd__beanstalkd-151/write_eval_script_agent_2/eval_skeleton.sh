@@ -1,0 +1,29 @@
+#!/bin/bash
+set -uxo pipefail
+cd /testbed
+
+# Ensure we are on the correct commit (already done in Dockerfile but double-check)
+git checkout f43a5470128a1f94210dace36244503148c1f42f
+
+# Apply the test patch
+git apply -v - <<'EOF_114329324912'
+[CONTENT OF TEST PATCH]
+EOF_114329324912
+
+# According to context retrieval, 'make check' runs all tests
+# The target test files list was empty in the user prompt.
+# Run all tests identified by the repository (the four test files)
+# We'll run 'make check' which executes the complete test suite via ct/_ctcheck
+# This ensures the proper test framework and build system are used.
+
+# Build the project first (ensures all objects are compiled)
+make
+
+# Run the test suite
+make check
+rc=$?
+
+echo "OMNIGRIL_EXIT_CODE=$rc"
+
+# Reset the repository to original state
+git checkout f43a5470128a1f94210dace36244503148c1f42f -- .

@@ -1,0 +1,20 @@
+{
+    "task_id": "beanstalkd__beanstalkd-151",
+    "setup_info": {
+        "repo_path": "testbed/beanstalkd__beanstalkd-151_2025-12-16_05-46-36",
+        "repo_cache_path": "testbed/beanstalkd/beanstalkd_cache"
+    },
+    "task_info": {
+        "instance_id": "beanstalkd__beanstalkd-151",
+        "repo": "beanstalkd/beanstalkd",
+        "pull_number": 151,
+        "base_commit": "f43a5470128a1f94210dace36244503148c1f42f",
+        "patch": "diff --git a/doc/protocol.md b/doc/protocol.md\n--- a/doc/protocol.md\n+++ b/doc/protocol.md\n@@ -37,16 +37,14 @@ Names only supports ASCII strings.\n \n ### Job Lifecycle\n \n-A job in beanstalk gets created by a client with the `put` command. During its life it can be in one of four states:\n+A job in beanstalk gets created by a client with the `put` command. During its life it can be in one of four states: `ready`, `reserved`, `delayed`, or `buried`. After the `put` command, a job typically starts out ready. It waits in the ready queue until a worker comes along and runs the \"reserve\" command. If this job is next in the queue, it will be reserved for the worker. The worker will execute the job; when it is finished the worker will send a `delete` command to delete the job.\n \n | Status              | Description   |\n | --------------------| ------------- |\n-| `ready`             | it waits in the ready queue until a worker comes along and runs the \"reserve\" command |\n+| `ready`             | waiting to be reserved and processed after being put onto a tubed |\n | `reserved`          | if this job is next in the queue, it will be reserved for the worker. The worker will execute the job |\n-| `delayed`           | when it's waiting \"x\" seconds before to be `ready` |\n-| `buried`            | when it is finished the worker will send a \"delete\" ; when it is finished the worker will send a \"delete\" |\n-\n-\n+| `delayed`           | waiting to become ready after the specified delay. |\n+| `buried`            | waiting to be kicked, usually after job fails to process |\n \n Here is a picture of the typical job lifecycle:\n \n",
+        "test_patch": "",
+        "problem_statement": "[doc] fix job lifecycle description\nHi @kr,\n\nI realized I naively copied and pasted without checking if it made sense or. So I made some quick fixes on job lifecycle description.",
+        "version": "1.7",
+        "language": "C",
+        "created_at": "2012-10-31T23:14:38Z",
+        "repo_id": 6040
+    }
+}

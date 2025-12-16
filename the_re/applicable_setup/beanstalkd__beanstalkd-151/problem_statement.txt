@@ -1,0 +1,4 @@
+[doc] fix job lifecycle description
+Hi @kr,
+
+I realized I naively copied and pasted without checking if it made sense or. So I made some quick fixes on job lifecycle description.
