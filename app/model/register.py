@@ -33,6 +33,7 @@ def register_all_models() -> None:
     common.register_model(gpt.DeepSeekV25())
     common.register_model(gpt.DeepSeekV3())
     common.register_model(gpt.DeepSeek())
+    common.register_model(gpt.CustomOpenAIModel())
     common.register_model(gpt.Gpt4_1())
     common.register_model(gpt.Gpt4_1_mini())
     common.register_model(gpt.Gpt5_mini())

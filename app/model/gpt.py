@@ -443,6 +443,14 @@ class DeepSeek(OpenaiModel):
         super().__init__("deepseek-v3", 4096,0.00000014,  0.00000028)
         self.note = "Qwen2.5-72B."
 
+# Custom model whose actual name is provided via env var CUSTOM_OPENAI_MODEL_NAME.
+# Useful for internal OpenAI-compatible endpoints (e.g., DeepSeek v3.2) with custom model ids.
+class CustomOpenAIModel(OpenaiModel):
+    def __init__(self):
+        model_name = os.getenv("CUSTOM_OPENAI_MODEL_NAME", "deepseek-chat")
+        super().__init__(model_name, 4096, 0.0, 0.0)
+        self.note = f"Custom OpenAI-compatible model: {model_name}"
+
 class GLM46(OpenaiModel):
     def __init__(self):
         # Custom GLM-4.6 via OpenAI-compatible endpoint
