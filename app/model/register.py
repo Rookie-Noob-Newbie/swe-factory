@@ -40,6 +40,7 @@ def register_all_models() -> None:
     common.register_model(gpt.Gemini_2_5_flash_lite_preview())
     common.register_model(gpt.Kimi_k2())
     common.register_model(gpt.Gpt4_1_nano())
+    common.register_model(gpt.GLM46())
     common.register_model(gpt.Claude3_5Sonnet())
     common.register_model(gpt.Claude3_7Sonnet())
     common.register_model(claude.Claude3Opus())

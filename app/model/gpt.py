@@ -443,6 +443,12 @@ class DeepSeek(OpenaiModel):
         super().__init__("deepseek-v3", 4096,0.00000014,  0.00000028)
         self.note = "Qwen2.5-72B."
 
+class GLM46(OpenaiModel):
+    def __init__(self):
+        # Custom GLM-4.6 via OpenAI-compatible endpoint
+        super().__init__("GLM-4.6", 4096, 0.0, 0.0)
+        self.note = "Custom GLM-4.6."
+
 class Claude3_5Sonnet(OpenaiModel):
     def __init__(self):
         super().__init__(
