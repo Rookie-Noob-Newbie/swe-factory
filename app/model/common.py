@@ -192,6 +192,13 @@ SELECTED_MODEL: Model
 
 def set_model(model_name: str):
     global SELECTED_MODEL
+    # allow a generic alias for custom OpenAI-compatible endpoints
+    if model_name == "custom-openai-model":
+        from app.model import gpt  # local import to avoid cycles
+        SELECTED_MODEL = gpt.CustomOpenAIModel()
+        SELECTED_MODEL.setup()
+        return
+
     if model_name not in MODEL_HUB and not model_name.startswith("litellm-generic-"):
         print(f"Invalid model name: {model_name}")
         sys.exit(1)
