@@ -51,3 +51,9 @@ disable_run_test: bool = False
 disable_download_test_resources: bool = False
 
 using_ubuntu_only: bool = False
+
+# Skip test_analysis_agent; useful for setup-only pipeline
+skip_test_analysis: bool = False
+
+# Skip all docker operations (build/run) but still generate Dockerfile/eval.sh
+disable_all_docker: bool = False

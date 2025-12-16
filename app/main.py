@@ -100,10 +100,11 @@ def main(args, subparser_dest_attr_name: str = "command"):
     globals.setup_dir = args.setup_dir 
     
     globals.organize_output_only = args.organize_output_only
-    globals.results_path = args.results_path 
+    globals.results_path = args.results_path
     globals.disable_memory_pool = args.disable_memory_pool
     globals.disable_run_test = args.disable_run_test
-    
+    globals.skip_test_analysis = getattr(args, "skip_test_analysis", False)
+
     globals.disable_context_retrieval= args.disable_context_retrieval
 
     globals.disable_download_test_resources= args.disable_download_test_resources
@@ -347,6 +348,12 @@ def add_task_related_args(parser: ArgumentParser) -> None:
         action="store_true",
         default=False,
         help="Enable layered code search.",
+    )
+    parser.add_argument(
+        "--skip-test-analysis",
+        action="store_true",
+        default=False,
+        help="Skip the test_analysis_agent (setup only; still generates Dockerfile/eval.sh).",
     )
     parser.add_argument(
         "--disable-context-retrieval",
@@ -748,7 +755,7 @@ def do_inference(
 
     
     try:
-        agents_manager = AgentsManager(python_task, 
+        agents_manager = AgentsManager(python_task,
                                         task_output_dir,
                                         client,
                                         start_time,
@@ -759,6 +766,7 @@ def do_inference(
                                         disable_run_test= globals.disable_run_test or globals.disable_all_docker,
                                         disable_download_test_resources = globals.disable_download_test_resources,
                                         using_ubuntu_only = globals.using_ubuntu_only,
+                                        skip_test_analysis = globals.skip_test_analysis,
                                         )
         agents_manager.run_workflow()
         run_ok = True

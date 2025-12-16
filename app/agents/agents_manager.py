@@ -44,11 +44,11 @@ class AgentsManager:
     """
     Simple manager to orchestrate LLM-based agents.
     """
-    def __init__(self, 
-                task: Task, 
+    def __init__(self,
+                task: Task,
                 output_dir: str,
-                client: docker.DockerClient, 
-                start_time: datetime, 
+                client: docker.DockerClient,
+                start_time: datetime,
                 max_iteration_num: int,
                 results_path:str,
                 disable_memory_pool:bool,
@@ -56,6 +56,7 @@ class AgentsManager:
                 disable_run_test:bool,
                 disable_download_test_resources:bool,
                 using_ubuntu_only:bool,
+                skip_test_analysis: bool = False,
                 ):
         self.task = task
         self.output_dir = os.path.abspath(output_dir)
@@ -79,6 +80,7 @@ class AgentsManager:
         self.disable_context_retrieval = disable_context_retrieval
         self.disable_run_test = disable_run_test
         self.disable_download_test_resources = disable_download_test_resources
+        self.skip_test_analysis = skip_test_analysis
         if disable_context_retrieval:
             self.set_agent_status("context_retrieval_agent",True)
         self.agents_dict['test_analysis_agent'].disable_context_retrieval= disable_context_retrieval
@@ -224,10 +226,12 @@ class AgentsManager:
                 self.agents_dict['test_analysis_agent'].dockerfile = dockerfile
                 self.agents_dict['test_analysis_agent'].eval_script_skeleton = eval_script_skeleton
                 self.agents_dict['test_analysis_agent'].eval_script = eval_script
-                # analysis, _, success =  self.agents_dict['test_analysis_agent'].run_task()
-              
+                # Optional: skip test_analysis_agent entirely (setup-only mode)
+                if self.skip_test_analysis:
+                    self.workflow_finish_status = True
+                    break
+
                 if self.disable_run_test:
-                    
                     analysis, _, success =  self.agents_dict['test_analysis_agent'].run_task_without_run_test()
                 else:
                     analysis, _, success =  self.agents_dict['test_analysis_agent'].run_task(self.disable_context_retrieval)
