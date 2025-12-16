@@ -250,7 +250,7 @@ def add_task_related_args(parser: ArgumentParser) -> None:
     def model_parser(name: str):
         if not isinstance(name, str):
             raise TypeError(f"Invalid model name: {name}")
-        if name in common.MODEL_HUB.keys():
+        if name in common.MODEL_HUB.keys() or name == "custom-openai-model":
             return name
         if name.startswith("litellm-generic-"):
             return name
