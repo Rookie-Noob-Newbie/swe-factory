@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import docker
+import logging
 import os
 import signal
 import tarfile
@@ -10,6 +11,7 @@ from pathlib import Path
 
 from docker.models.containers import Container
 
+DOCKER_REPOSITORY = os.environ["DOCKER_REPOSITORY"]
 HEREDOC_DELIMITER = "EOF_1399519320"  # different from dataset HEREDOC_DELIMITERs!
 
 
@@ -352,6 +354,62 @@ def build_container(client,test_image_name,test_container_name,instance_id,run_t
             run_test_logger.info(traceback.format_exc())
             cleanup_container(client, container, run_test_logger)
             raise BuildImageError(instance_id, str(e), run_test_logger) from e
+
+def push_container(
+    client: docker.DockerClient,
+    container,
+    remote_tag: str,
+    logger: logging.Logger
+):
+    """
+    Push from local container as image to remote (remote_tag contains registry and repo already)
+    
+    Args:
+        client (docker.DockerClient): Docker client.
+        container (docker.models.containers.Container): Container to push as image.
+        remote_tag (str): Remote tag including registry and repository (e.g., registry.example.com/repo/image:tag).
+        logger (logging.Logger): Logger to use for output.
+    """
+    
+    image_id = None
+    try:
+        # Commit the container to create an image
+        logger.info(f"Committing container {container.name} to image...")
+        image = container.commit()
+        image_id = image.id
+        logger.info(f"Container committed with image ID: {image_id}")
+        
+        # Tag the image with the remote tag
+        logger.info(f"Tagging image {image.short_id} as {remote_tag}...")
+        image.tag(remote_tag)
+        logger.info(f"Image tagged as {remote_tag}")
+        
+        # Push the image to the remote repository
+        logger.info(f"Pushing image {remote_tag} to remote repository...")
+        push_logs = client.images.push(remote_tag, stream=True, decode=True)
+        
+        # Stream and log the push progress
+        for log_line in push_logs:
+            if 'status' in log_line:
+                status = log_line['status']
+                progress = log_line.get('progress', '')
+                logger.info(f"{status} {progress}".strip())
+            if 'error' in log_line:
+                error_msg = log_line['error']
+                logger.error(f"Push error: {error_msg}")
+                raise Exception(f"Failed to push image: {error_msg}")
+        
+        logger.info(f"Successfully pushed image {remote_tag}")
+        
+        # Delete the local image after successful push
+        logger.info(f"Removing local image {remote_tag}...")
+        client.images.remove(remote_tag, force=True)
+        logger.info(f"Local image {remote_tag} removed successfully")
+        
+    except Exception as e:
+        logger.error(f"Failed to push container {container.name}: {e}")
+        logger.error(traceback.format_exc())
+        raise
 
 class EvaluationError(Exception):
     def __init__(self, instance_id, message, logger):

@@ -12,7 +12,8 @@ from app.agents.test_analysis_agent.docker_utils  import (
     exec_run_with_timeout,
     BuildImageError,
     build_container,
-    EvaluationError)
+    EvaluationError,
+    push_container)
 import docker
 import re
 from app.log import log_exception,setup_logger,close_logger
@@ -558,6 +559,20 @@ class TestAnalysisAgent(Agent):
                 tool_output += f"Find test_output.txt! Waiting for analysis. "
                 summary += 'Obtain test results successfully.'
                 success = True
+                
+                # Push container to remote repository if DOCKER_REPOSITORY is set
+                docker_repository = os.environ.get("DOCKER_REPOSITORY", "")
+                if docker_repository and container:
+                    try:
+                        remote_tag = f"{docker_repository}/{test_container_name}:latest"
+                        run_test_logger.info(f"Pushing container {test_container_name} to {remote_tag}...")
+                        push_container(self.client, container, remote_tag, run_test_logger)
+                        tool_output += f"Container pushed to {remote_tag}.\n"
+                        summary += "Container pushed to remote.\n"
+                    except Exception as e:
+                        run_test_logger.error(f"Failed to push container: {e}")
+                        tool_output += f"Warning: Failed to push container to remote: {e}\n"
+                        # Don't fail the entire test run if push fails
 
         finally:
            

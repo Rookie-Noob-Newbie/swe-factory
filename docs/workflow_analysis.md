@@ -33,6 +33,7 @@ SWE-Factory 是一个自动化的 GitHub Issue 解决方案训练数据和评估
 ## 3. Stage I: 原始 Issue 数据收集
 
 ### 3.1 目录结构
+
 ```
 data_collection/
 ├── collect/
@@ -54,46 +55,56 @@ data_collection/
 ```
 
 #### Step 1: 获取热门仓库
+
 ```bash
 python get_top_repos.py --language Python --output_path data/popular_repos --top_n 100
 ```
+
 - 使用 GitHub API 按星标数获取指定语言的热门仓库
 - 输出: `python_top_100_repos.json`
 
 #### Step 2: 收集 PR 数据
+
 ```bash
 python print_pulls.py python-attrs/attrs data/python-attrs/attrs/prs.jsonl
 ```
+
 - 从指定仓库收集所有 Pull Request 数据
 - 输出: JSONL 格式的 PR 数据文件
 
 #### Step 3: 构建任务实例
+
 ```bash
 python build_dataset.py data/prs.jsonl data/instances.jsonl --language python
 ```
+
 核心逻辑 (`build_dataset.py`):
+
 - **验证 PR 有效性**: 检查 PR 是否已合并、是否关联 Issue
 - **提取 Patch**: 从 PR 中提取代码补丁和测试补丁
 - **提取问题描述**: 从关联的 Issue 中提取问题陈述
 
 输出的任务实例结构:
+
 ```json
 {
-    "repo": "owner/repo",
-    "pull_number": 123,
-    "instance_id": "owner__repo-123",
-    "base_commit": "abc123...",
-    "patch": "diff --git ...",
-    "test_patch": "diff --git ...",
-    "problem_statement": "Issue description...",
-    "created_at": "2024-01-01T00:00:00Z"
+  "repo": "owner/repo",
+  "pull_number": 123,
+  "instance_id": "owner__repo-123",
+  "base_commit": "abc123...",
+  "patch": "diff --git ...",
+  "test_patch": "diff --git ...",
+  "problem_statement": "Issue description...",
+  "created_at": "2024-01-01T00:00:00Z"
 }
 ```
 
 #### Step 4: 版本标注
+
 ```bash
 python get_version.py --instance_path instances.jsonl --testbed github --max-workers 20
 ```
+
 - 通过 `git describe --tags` 为每个实例分配版本号
 
 ---
@@ -151,6 +162,7 @@ python app/main.py swe-bench \
 ```
 
 支持的子命令:
+
 - `swe-bench`: 运行 SWE-bench 格式的任务
 - `github-issue`: 运行在线 GitHub Issue
 - `local-issue`: 运行本地 Issue
@@ -197,6 +209,7 @@ python app/main.py swe-bench \
 `AgentsManager` 是整个多智能体系统的核心调度器，位于 `app/agents/agents_manager.py`。
 
 #### 初始化阶段
+
 ```python
 agents_dict = {
     "write_docker_agent": WriteDockerfileAgent(...),
@@ -252,11 +265,13 @@ agents_dict = {
 **职责**: 自动探索仓库结构，收集环境配置信息
 
 **API 函数**:
+
 - `browse_folder(path, depth)`: 浏览文件夹结构
 - `search_files_by_keyword(keyword)`: 按关键词搜索文件
 - `browse_file_for_environment_info(file_path, custom_query)`: 提取环境配置信息
 
 **工作流程**:
+
 ```
 1. 初始化: 获取仓库根目录结构
 2. 循环:
@@ -274,6 +289,7 @@ agents_dict = {
 **职责**: 生成可复现的 Docker 环境配置
 
 **特性**:
+
 - 支持参考历史成功配置 (Memory Pool)
 - 支持迭代修改 Dockerfile
 - 支持仅使用 Ubuntu 基础镜像模式
@@ -287,11 +303,13 @@ agents_dict = {
 **职责**: 生成测试执行脚本
 
 **核心功能**:
+
 - 生成 `eval.sh` 脚本
 - 处理测试补丁的应用
 - 处理二进制测试资源的下载
 
 **脚本骨架结构**:
+
 ```bash
 #!/bin/bash
 set -uxo pipefail
@@ -329,8 +347,10 @@ git checkout <commit> <test_files>  # 恢复测试文件
    - 分析测试日志
    - 判断是否成功
    - 生成修改建议
+   - 自动上传镜像
 
 **输出决策**:
+
 ```json
 {
     "is_finish": true/false,
@@ -345,11 +365,13 @@ git checkout <commit> <test_files>  # 恢复测试文件
 **功能**: 复用历史成功配置，提高效率和一致性
 
 **实现**:
+
 - 存储在 `results.json` 文件中
 - 按仓库名和版本号索引
 - 使用文件锁保证并发安全
 
 **查找逻辑** (`get_closest_version_info`):
+
 1. 筛选同仓库的历史记录
 2. 精确匹配版本号
 3. 如无精确匹配，选择最接近的较低版本
@@ -359,6 +381,7 @@ git checkout <commit> <test_files>  # 恢复测试文件
 ## 5. Stage III: Fail2Pass 验证
 
 ### 5.1 目录结构
+
 ```
 evaluation/
 ├── run_evaluation.py    # 主评估脚本
@@ -442,16 +465,17 @@ if prev_fail and after_pass:
 ### 6.1 输入数据格式
 
 **任务实例 (JSONL)**:
+
 ```json
 {
-    "instance_id": "owner__repo-123",
-    "repo": "owner/repo",
-    "pull_number": 123,
-    "base_commit": "abc123...",
-    "patch": "diff --git a/file.py b/file.py\n...",
-    "test_patch": "diff --git a/test_file.py b/test_file.py\n...",
-    "problem_statement": "Issue description...",
-    "version": "1.0.0"
+  "instance_id": "owner__repo-123",
+  "repo": "owner/repo",
+  "pull_number": 123,
+  "base_commit": "abc123...",
+  "patch": "diff --git a/file.py b/file.py\n...",
+  "test_patch": "diff --git a/test_file.py b/test_file.py\n...",
+  "problem_statement": "Issue description...",
+  "version": "1.0.0"
 }
 ```
 
@@ -501,6 +525,7 @@ output/
 ### 6.3 结果文件格式
 
 **results.json** (Memory Pool):
+
 ```json
 [
     {
@@ -522,16 +547,16 @@ output/
 
 ### 7.1 命令行参数
 
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--model` | 使用的 LLM 模型 | gpt-3.5-turbo-0125 |
-| `--model-temperature` | 模型温度 | 0.0 |
-| `--conv-round-limit` | 最大迭代轮数 | 15 |
-| `--num-processes` | 并行进程数 | 1 |
-| `--disable-memory-pool` | 禁用记忆池 | False |
-| `--disable-run-test` | 禁用测试运行 | False |
-| `--disable-context-retrieval` | 禁用上下文检索 | False |
-| `--using-ubuntu-only` | 仅使用 Ubuntu 镜像 | False |
+| 参数                          | 说明               | 默认值             |
+| ----------------------------- | ------------------ | ------------------ |
+| `--model`                     | 使用的 LLM 模型    | gpt-3.5-turbo-0125 |
+| `--model-temperature`         | 模型温度           | 0.0                |
+| `--conv-round-limit`          | 最大迭代轮数       | 15                 |
+| `--num-processes`             | 并行进程数         | 1                  |
+| `--disable-memory-pool`       | 禁用记忆池         | False              |
+| `--disable-run-test`          | 禁用测试运行       | False              |
+| `--disable-context-retrieval` | 禁用上下文检索     | False              |
+| `--using-ubuntu-only`         | 仅使用 Ubuntu 镜像 | False              |
 
 ### 7.2 超时设置
 
@@ -554,11 +579,11 @@ output/
 
 根据 README 中的评估结果:
 
-| 基础模型 | F2P 率 | 输出率 | 成本 (USD) | 时间 (分钟) |
-|----------|--------|--------|------------|-------------|
-| GPT-4.1-mini | 50.2% | 64.8% | 0.047 | 26.3 |
-| DeepSeek-v3-0324 | 42.0% | 53.4% | 0.037 | 23.0 |
-| Kimi-K2 | 47.8% | 63.2% | 0.056 | 30.2 |
+| 基础模型         | F2P 率 | 输出率 | 成本 (USD) | 时间 (分钟) |
+| ---------------- | ------ | ------ | ---------- | ----------- |
+| GPT-4.1-mini     | 50.2%  | 64.8%  | 0.047      | 26.3        |
+| DeepSeek-v3-0324 | 42.0%  | 53.4%  | 0.037      | 23.0        |
+| Kimi-K2          | 47.8%  | 63.2%  | 0.056      | 30.2        |
 
 ---
 
@@ -573,16 +598,17 @@ output/
 ### 10.2 自定义 Agent
 
 继承 `Agent` 基类:
+
 ```python
 from app.agents.agent import Agent
 
 class CustomAgent(Agent):
     api_functions = ["custom_function"]
-    
+
     def __init__(self, task, output_dir, ...):
         super().__init__(agent_id="CustomAgent")
         ...
-    
+
     def run_task(self, print_callback=None):
         # 实现任务逻辑
         return output, summary, success
@@ -599,6 +625,7 @@ SWE-Factory 通过三个阶段的自动化流程，实现了从原始 GitHub Iss
 3. **验证**: 通过 Fail2Pass 验证确保数据质量
 
 核心创新点:
+
 - **多智能体协作**: 四个专业化 Agent 分工协作
 - **迭代优化**: 基于测试反馈自动修正配置
 - **记忆池复用**: 利用历史成功配置提高效率
