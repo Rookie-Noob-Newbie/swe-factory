@@ -94,7 +94,15 @@ def clone_repo(clone_link: str, cloned_dir: str):
     clone_cmd = ["git", "clone", clone_link, cloned_name]
     create_dir_if_not_exists(dest_dir)
     with cd(dest_dir):
-        run_command(clone_cmd)
+        try:
+            run_command(clone_cmd)
+        except Exception as e:
+            # skip if already cloned by another process
+            git_dir = pjoin(cloned_dir, ".git")
+            if os.path.isdir(git_dir):
+                pass
+            raise e
+
     # cloned_dir = pjoin(dest_dir, cloned_name)
     # return cloned_dir
 
@@ -127,6 +135,7 @@ def get_version_by_git(cloned_dir:str)-> str:
     info = None
     with cd(cloned_dir):
         info = run_command(command)
+    return info.stdout.strip() # FIXME
 
 
 def repo_clean_changes() -> None:
@@ -327,3 +336,39 @@ def parse_function_invocation(
         raise ValueError(f"Invalid function invocation: {invocation_str}") from e
 
     return function_name, arguments
+
+
+def git_diff_commits(repo_path: str, base_commit: str, target_commit: str) -> str:
+    """
+    Generate a git diff between two commits.
+    
+    Args:
+        repo_path: Path to the git repository
+        base_commit: The base commit hash
+        target_commit: The target commit hash
+    
+    Returns:
+        The diff as a string, or empty string if commits are the same or on error
+    """
+    if not base_commit or not target_commit:
+        return ""
+    
+    if base_commit == target_commit:
+        return ""
+    
+    try:
+        with cd(repo_path):
+            diff_cmd = ["git", "diff", base_commit, target_commit]
+            result = subprocess.run(
+                diff_cmd,
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            return result.stdout
+    except subprocess.CalledProcessError as e:
+        log_and_print(f"Error generating diff between {base_commit} and {target_commit}: {e}")
+        return ""
+    except Exception as e:
+        log_and_print(f"Unexpected error in git_diff_commits: {e}")
+        return ""

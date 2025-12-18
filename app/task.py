@@ -43,6 +43,7 @@ class SweTask(Task):
     repo_path: str
     repo_cache_path: str
     commit: str
+    solution_commit: str
     # env_name: str
     repo_name: str
     # pre_install_cmds: list[str]

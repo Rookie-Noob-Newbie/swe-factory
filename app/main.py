@@ -28,7 +28,7 @@ from app.post_process import (
     organize_and_form_input,
    
 )
-from app.raw_tasks import RawGithubTask, RawLocalTask, RawSweTask, RawTask
+from app.raw_tasks import RawGithubTask, RawLocalTask, RawSweTask, RawTask, SweTask
 from app.task import Task
 import multiprocessing
 import time
@@ -124,7 +124,7 @@ def main(args, subparser_dest_attr_name: str = "command"):
             client = None
             # try:
             tasks = make_swe_tasks(
-                args.task, args.task_list_file,args.task_batch, args.batch_index,args.tasks_map,  args.setup_dir,client
+                args.task, args.task_list_file,args.task_batch, args.batch_index,args.tasks_map,  args.setup_dir,client, num_processes
             )
        
             groups = group_swe_tasks_by_env(tasks)
@@ -424,7 +424,8 @@ def make_swe_tasks(
     # setup_map_file: str,
     tasks_map_file: str,
     setup_dir: str,
-    client: docker.DockerClient,
+    client: None,
+    num_processes: int,
 ) -> list[RawSweTask]:
     if task_id is not None and task_list_file is not None:
         raise ValueError("Cannot specify both task and task-list.")
@@ -482,26 +483,37 @@ def make_swe_tasks(
  
     # print(len(all_task_ids))
     # input()
-    for task_id in all_task_ids:
-        setup_info = {}
-        task_info = tasks_map[task_id]
-        task_start_time_s = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        repo_cache_name = f"{task_info['repo']}_cache"
-        repo_cache_dir =  pjoin(setup_dir, repo_cache_name)
-        if not os.path.isdir(repo_cache_dir):
-            github_link = f"https://github.com/{task_info['repo']}.git"
-            apputils.clone_repo_and_checkout(github_link, "", repo_cache_dir)
-        else:
-            # 可以在这里打印日志或直接跳过
-            print(f"Cache already exists: {repo_cache_dir}, skip clone.")
-        task_repo_name = f'{task_id}_{task_start_time_s}'
-        task_repo_dir =  pjoin(setup_dir,task_repo_name)
-        apputils.create_dir_if_not_exists(task_repo_dir)
+    # clone repos in parallel
+    with ProcessPoolExecutor(max_workers=num_processes) as executor:
+        futures = []
+        
+        for task_id in all_task_ids:
+            setup_info = {}
+            task_info = tasks_map[task_id]
+            task_start_time_s = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            repo_cache_name = f"{task_info['repo']}_cache"
+            repo_cache_dir =  pjoin(setup_dir, repo_cache_name)
+            if not os.path.isdir(repo_cache_dir):
+                github_link = f"https://github.com/{task_info['repo']}.git"
+                future = executor.submit(apputils.clone_repo_and_checkout, github_link, "", repo_cache_dir)
+                futures.append(future)
+            else:
+                # 可以在这里打印日志或直接跳过
+                print(f"Cache already exists: {repo_cache_dir}, skip clone.")
+            # build diff on fly
 
-        setup_info['repo_path'] = task_repo_dir
-        setup_info['repo_cache_path'] = repo_cache_dir
-        task = RawSweTask(task_id, setup_info, task_info,client)
-        all_tasks.append(task)
+            task_repo_name = f'{task_id}_{task_start_time_s}'
+            task_repo_dir =  pjoin(setup_dir,task_repo_name)
+            apputils.create_dir_if_not_exists(task_repo_dir)
+
+            setup_info['repo_path'] = task_repo_dir
+            setup_info['repo_cache_path'] = repo_cache_dir
+            task = RawSweTask(task_id, setup_info, task_info,client)
+            all_tasks.append(task)
+
+        # join
+        as_completed(futures)
+
     # input()
     return all_tasks
 
@@ -729,9 +741,45 @@ def run_raw_task(
 
     return run_ok
 
+def generate_patch(task: SweTask) -> None:
+    """
+    Generate patch from commit and solution commit; skip if empty.
+    Updates task.patch with the generated diff.
+    
+    Args:
+        task: The Task instance (must be SweTask with commit and solution_commit)
+    """
+    # Only generate patch for SweTask instances
+    if not hasattr(task, 'solution_commit') or not hasattr(task, 'commit'):
+        log.log_and_always_print(f"Task {task.task_id} does not have commit info, skipping patch generation")
+        return
+    
+    base_commit = task.commit
+    solution_commit = task.solution_commit
+    
+    # Skip if either commit is empty or they are the same
+    if not base_commit or not solution_commit or base_commit == solution_commit:
+        log.log_and_always_print(f"Task {task.task_id}: No patch to generate (commits are empty or identical)")
+        task.patch = ""
+        return
+    
+    # Generate the patch using git diff
+    log.log_and_always_print(f"Task {task.task_id}: Generating patch from {base_commit[:8]} to {solution_commit[:8]}")
+    
+    # Use the repo_cache_path for generating the diff (it has all commits)
+    repo_path = task.repo_cache_path if hasattr(task, 'repo_cache_path') else task.project_path
+    patch = apputils.git_diff_commits(repo_path, base_commit, solution_commit)
+    
+    if patch:
+        task.patch = patch
+        log.log_and_always_print(f"Task {task.task_id}: Generated patch ({len(patch)} bytes)")
+    else:
+        task.patch = ""
+        log.log_and_always_print(f"Task {task.task_id}: No changes found between commits")
+
 
 def do_inference(
-    python_task: Task,
+    python_task: SweTask,
     task_output_dir: str,
     print_callback: Callable[[dict], None] | None = None,
 ) -> bool:
@@ -742,6 +790,11 @@ def do_inference(
     # github_link = f'https://github.com/{python_task.repo_name}.git'
     commit_hash = python_task.commit
     apputils.clone_repo_and_checkout(python_task.repo_cache_path,commit_hash,python_task.project_path)
+    
+    # Generate patch if task has solution_commit and patch is empty
+    if hasattr(python_task, 'solution_commit') and hasattr(python_task, 'patch'):
+        if not python_task.patch or python_task.patch.strip() == "":
+            generate_patch(python_task)
     logger.add(
         pjoin(task_output_dir, "info.log"),
         level="DEBUG",
