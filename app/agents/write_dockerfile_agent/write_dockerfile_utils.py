@@ -33,7 +33,7 @@ You will receive the following information:
 1. Use all provided information to set up the environment properly (use details from the context retrieval agent and test_analysis_agent if available).
 2. Ensure all dependencies are installed and correctly configured.
 3. Configure the system to allow the provided test files to be executed.
-4. Generate a complete, structured **Dockerfile** based on the given information.
+4. Generate a complete, structured **Dockerfile** based on the given information; edit on Dockerfile should consider reuse on layers.
 
 Your **Dockerfile must be robust and reproducible**, ensuring that the tests run successfully in an isolated container."""
 
@@ -79,22 +79,31 @@ The Dockerfile must be wrapped in `<dockerfile>` tags. Example:
 <dockerfile>
 # Base image specification. Defines the foundation OS and architecture for the container (Required)
 FROM --platform=linux/x86_64 ubuntu:22.04
-ARG DEBIAN_FRONTEND=noninteractive
+ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Etc/UTC
-# System dependencies installation. Installs essential tools and libraries required for development and runtime (Required)
-RUN apt update && apt install -y     wget     git     build-essential     libffi-dev     libtiff-dev     python3     python3-pip     python-is-python3     jq     curl     locales     locales-all     tzdata     && rm -rf /var/lib/apt/lists/*
-# install patch (required)
-RUN apt install -y patch
-# Install package and environment manager. Downloads and sets up a lightweight environment management tool
+
+# Change mirror and update (MUST)
+RUN sed -i 's/archive.ubuntu.com/mirrors.cloud.aliyuncs.com/g' /etc/apt/sources.list && apt update 
+# System dependencies installation. Installs essential tools and libraries required for clone and patch (Required)
+RUN apt install -y wget git patch && rm -rf /var/lib/apt/lists/*
+# set default workdir to testbed. (Required)
+WORKDIR /testbed/
+# The three lines above should NEVER change, so as to reuse layer.
+
+# Fetch source code. Clones source code, checkouts to the taget version
+RUN /bin/bash -c "git clone https://github.com/python/mypy /testbed &&     chmod -R 777 /testbed &&     cd /testbed &&     git reset --hard 6de254ef00f99ce5284ab947f2dd1179db6d28f6 &&     git remote remove origin"
+
+
+# Install package and environment manager required by the repo. (Example)
 RUN wget 'https://repo.anaconda.com/miniconda/Miniconda3-py311_23.11.0-2-Linux-x86_64.sh' -O miniconda.sh     && bash miniconda.sh -b -p /opt/miniconda3     && rm miniconda.sh
 ENV PATH=/opt/miniconda3/bin:$PATH
 RUN conda init --all     && conda config --append channels conda-forge
-# Sets up a dedicated environment with specific dependencies for the target environemnt
 RUN /bin/bash -c "source /opt/miniconda3/etc/profile.d/conda.sh &&     conda create -n testbed python=3.7 -y &&     conda activate testbed &&     pip install pytest==6.2.5 typing_extensions==3.10"
-# set default workdir to testbed. (Required)
-WORKDIR /testbed/
-# Target Project setup. Clones source code, checkouts to the taget version, configures it, and installs project-specific dependencies
-RUN /bin/bash -c "source /opt/miniconda3/etc/profile.d/conda.sh &&     conda activate testbed &&     git clone https://github.com/python/mypy /testbed &&     chmod -R 777 /testbed &&     cd /testbed &&     git reset --hard 6de254ef00f99ce5284ab947f2dd1179db6d28f6 &&     git remote remove origin &&     pip install -r test-requirements.txt &&     pip install -e ."
+# If you use python, please change index url
+RUN pip config set global.index-url http://mirrors.cloud.aliyuncs.com/pypi/simple/
+
+# Target Project setup. Configures it, and installs project-specific dependencies (Example)
+RUN /bin/bash -c "source /opt/miniconda3/etc/profile.d/conda.sh &&     conda activate testbed &&     git clone https://github.com/python/mypy /testbed && chmod -R 777 /testbed && cd /testbed && git reset --hard 6de254ef00f99ce5284ab947f2dd1179db6d28f6 && git remote remove origin && pip install -r test-requirements.txt && pip install -e ."
 RUN echo "source /opt/miniconda3/etc/profile.d/conda.sh && conda activate testbed" >> /root/.bashrc
 </dockerfile>
 """

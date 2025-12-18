@@ -287,7 +287,7 @@ class TestAnalysisAgent(Agent):
         task_id,
         image_name,
         build_image_logger,
-        client
+        client: docker.DockerClient
     ):
         """Build Docker image with detailed logging and error handling."""
     
@@ -327,7 +327,7 @@ class TestAnalysisAgent(Agent):
             forcerm=True,
             decode=True,
             platform="linux/x86_64",
-            nocache=True,
+            # nocache=True,
         )
 
         buffer = ""
@@ -435,7 +435,7 @@ class TestAnalysisAgent(Agent):
 
         return tool_output, summary, success
 
-    def run_test(self, eval_script: str) -> (str, str, bool):
+    def run_test(self, eval_script: str) -> tuple[str, str, bool]:
         tool_output = ""
         summary = ""
         success = False
