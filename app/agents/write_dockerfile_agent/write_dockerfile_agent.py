@@ -6,6 +6,7 @@ import os
 import shutil
 from loguru import logger
 import re
+import jinja2
 import json
 from app.log import (
     print_acr,
@@ -132,7 +133,7 @@ class WriteDockerfileAgent(Agent):
             if self.using_ubuntu_only:
                 self.add_user_message(write_dockerfile_utils.get_user_prompt_init_dockerfile_using_ubuntu_only())
             else:
-                self.add_user_message(write_dockerfile_utils.get_user_prompt_init_dockerfile())
+                self.add_user_message(write_dockerfile_utils.get_user_prompt_init_dockerfile(self.task))
 
         # 3. Delegate to the retryable writer
         task_output = write_dockerfile_utils.write_dockerfile_with_retries(

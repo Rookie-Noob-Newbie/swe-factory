@@ -8,6 +8,7 @@ from os.path import join as pjoin
 from pathlib import Path
 import os
 from loguru import logger
+import jinja2
 from app.data_structures import MessageThread, MethodId
 from app.log import print_acr, print_patch_generation
 from app.model import common
@@ -15,7 +16,7 @@ from app.task import Task
 import re
 
 
-SYSTEM_PROMPT_DOCKERFILE = """You are a software agent specialized in creating Docker environments for software projects.  
+SYSTEM_PROMPT_DOCKERFILE = """You are a software agent specialized in creating Docker environments for python projects.  
 Your task is to generate a **Dockerfile** that ensures the provided test files can be executed correctly in an isolated environment.
 
 After that, an eval script agent will generate an evaluation script, and a test log analysis agent will set up the environment based on your Dockerfile and run the eval script.
@@ -54,8 +55,8 @@ The Dockerfile must ensure that the provided test files can be executed correctl
 ### Important Notes:
 1. You are FORBIDDEN to run tests in the dockerfile, tests will be run using eval script.
 2. When building the Dockerfile, you MUST prioritize using package managers such as Conda, Maven, or NPM etc to set up the environment efficiently.
-3. Ensure shell compatibility by using `/bin/bash` as the default shell environment to avoid runtime issues.  For example, **do not use `FROM alpine:latest`**, as it lacks `/bin/bash` by default, which may cause runtime errors. Instead, use a base image like `ubuntu:22.04` or `debian:bookworm` that includes Bash by default.
-4. Pay more attention when using Ubuntu-based images**, as different versions may have variations in default packages, dependency resolution, and package manager behavior, which could lead to unexpected errors.
+3. Ensure shell compatibility by using `/bin/bash` as the default shell environment to avoid runtime issues.
+4. Pay more attention to python base version. You may modify base image if required. If version is too old (python2, python3 <= 3.8), you may give it up. 
 5. DO NOT use `COPY` to copy local files** into the Docker container.  
    - For example, avoid using `COPY package.json /testbed/` or `COPY requirements.txt /testbed/`.  
    - Instead, all files should be retrieved directly by **cloning the repository** inside the container to ensure a fully reproducible environment.
@@ -77,35 +78,28 @@ The Dockerfile must ensure that the provided test files can be executed correctl
 The Dockerfile must be wrapped in `<dockerfile>` tags. Example:
 
 <dockerfile>
-# Base image specification. Defines the foundation OS and architecture for the container (Required)
-FROM --platform=linux/x86_64 ubuntu:22.04
+# Base image specification. Defines the foundation OS and python version for the container (Required)
+FROM --platform=linux/x86_64 python:3.10-trixie
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Etc/UTC
 
 # Change mirror and update (MUST)
-RUN sed -i 's/archive.ubuntu.com/mirrors.cloud.aliyuncs.com/g' /etc/apt/sources.list && apt update 
-# System dependencies installation. Installs essential tools and libraries required for clone and patch (Required)
-# DO NOT install repo related tools here!
-RUN apt install -y wget git patch python3-pip python3-venv python3-dev pkg-config build-essential && rm -rf /var/lib/apt/lists/*
+RUN sed -i 's|deb.debian.org|mirrors.cloud.aliyuncs.com|g' /etc/apt/sources.list.d/debian.sources && apt update && rm -rf /var/lib/apt/lists/*
 RUN pip config set global.index-url http://mirrors.cloud.aliyuncs.com/pypi/simple/ && pip config set global.trusted-host mirrors.cloud.aliyuncs.com
 # set default workdir to testbed. (Required)
 WORKDIR /testbed/
-# The three lines above should NEVER change, so as to reuse layer.
-
 # Fetch source code. Clones source code, checkouts to the taget version
-RUN /bin/bash -c "git clone https://github.com/python/mypy /testbed &&     chmod -R 777 /testbed &&     cd /testbed &&     git reset --hard 6de254ef00f99ce5284ab947f2dd1179db6d28f6 &&     git remote remove origin"
+RUN /bin/bash -c "git clone https://github.com/{{task.repo_name}} /testbed && chmod -R 777 /testbed && cd /testbed && git reset --hard {{task.commit}} && git remote remove origin"
+# The three lines above should NEVER change, so as to reuse layers.
 
 # Install package and environment manager required by the repo. (Example)
-RUN wget 'https://repo.anaconda.com/miniconda/Miniconda3-py311_23.11.0-2-Linux-x86_64.sh' -O miniconda.sh     && bash miniconda.sh -b -p /opt/miniconda3     && rm miniconda.sh
-ENV PATH=/opt/miniconda3/bin:$PATH
-RUN conda init --all     && conda config --append channels conda-forge
-RUN /bin/bash -c "source /opt/miniconda3/etc/profile.d/conda.sh &&     conda create -n testbed python=3.8 -y &&     conda activate testbed &&     pip install pytest==6.2.5 typing_extensions==3.10"
-
+RUN apt install -y g++
 # Target Project setup. Configures it, and installs project-specific dependencies (Example)
-RUN /bin/bash -c "source /opt/miniconda3/etc/profile.d/conda.sh &&     conda activate testbed &&     git clone https://github.com/python/mypy /testbed && chmod -R 777 /testbed && cd /testbed && git reset --hard 6de254ef00f99ce5284ab947f2dd1179db6d28f6 && git remote remove origin && pip install -r test-requirements.txt && pip install -e ."
-RUN echo "source /opt/miniconda3/etc/profile.d/conda.sh && conda activate testbed" >> /root/.bashrc
+RUN pip install -r requirements.txt && pip install -e .
 </dockerfile>
 """
+
+USER_PROMPT_INIT_DOCKERFILE_TEMPLATE = jinja2.Template(USER_PROMPT_INIT_DOCKERFILE)
 
 USER_PROMPT_INIT_DOCKERFILE_USE_UBUNTU_ONLY = """Generate a **Dockerfile** based on the collected environment setup information.  
 The Dockerfile must ensure that the provided test files can be executed correctly.
@@ -182,8 +176,6 @@ Important Notes:
 - Testing should be performed **after** the image is built (in CI pipeline or post-build validation step), not during image creation.
 - Embedding tests in the Dockerfile breaks caching and slows down builds.
 
-3. If you frequently encounter issues with the base image, consider using FROM ubuntu:xx.xx and manually installing dependencies (node,maven,java,python,etc.) to ensure a stable and reliable environment.
-
 Return modified dockerfile in defined format. Wrap results in <dockerfile></dockerfile>.
 """
 
@@ -193,8 +185,8 @@ def get_system_prompt_dockerfile():
 
 
 
-def get_user_prompt_init_dockerfile():
-    return USER_PROMPT_INIT_DOCKERFILE
+def get_user_prompt_init_dockerfile(task):
+    return USER_PROMPT_INIT_DOCKERFILE_TEMPLATE.render(task=task)
 
 def get_user_prompt_init_dockerfile_using_ubuntu_only():
     return USER_PROMPT_INIT_DOCKERFILE_USE_UBUNTU_ONLY

@@ -468,7 +468,7 @@ class TestAnalysisAgent(Agent):
             summary += "Container started.\n"
             # Copy model prediction as patch file to container
             patch_file = Path(f"{cur_test_dir}/patch.diff")
-            patch_file.write_text(patch or "")
+            patch_file.write_bytes((patch or "").encode('utf-8'))
             run_test_logger.info(
                 f"Intermediate patch for {instance_id} written to {patch_file}, now applying to container..."
             )
@@ -513,7 +513,7 @@ class TestAnalysisAgent(Agent):
             run_test_logger.info(f"Git diff before:\n{git_diff_output_before}")
 
             eval_file = Path(f"{self.get_latest_test_analysis_output_dir()}/eval.sh")
-            eval_file.write_text(eval_script)
+            eval_file.write_bytes(eval_script.encode('utf-8'))
             run_test_logger.info(
                 f"Eval script for {instance_id} written to {patch_file}, now applying to container..."
             )
