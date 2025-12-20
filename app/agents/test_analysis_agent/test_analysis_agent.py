@@ -13,7 +13,7 @@ from app.agents.test_analysis_agent.docker_utils  import (
     BuildImageError,
     build_container,
     EvaluationError,
-    push_container)
+    push_image)
 import docker
 import re
 from app.log import log_exception,setup_logger,close_logger
@@ -297,21 +297,6 @@ class TestAnalysisAgent(Agent):
             f"Building image {task_id}\n"
             f"Using dockerfile:\n{dockerfile}\n"
         )
-
-    
-
-        if self.setup_dockerfile_num > 1:
-            # prev_image_name = f"{task_id}:latest_{setup_dockerfile_num - 1}"
-            prev_image_name = f"{self.task_id}-dockerfile{self.setup_dockerfile_num-1}:latest"
-            try:
-                client.images.remove(prev_image_name, force=True)
-                build_image_logger.info(f"Deleted previous image: {prev_image_name}")
-
-            except docker.errors.ImageNotFound:
-                build_image_logger.info(f"Do not find previous image, images list is clean.")
-            except Exception as e: 
-                build_image_logger.error(f"Failed to delete previous image {prev_image_name}: {str(e)}")
-        
         
 
         dockerfile_path = f'{cur_build_image_dir}/Dockerfile'
@@ -375,6 +360,10 @@ class TestAnalysisAgent(Agent):
             build_image_logger.info(buffer.strip())
 
         build_image_logger.info("Image built successfully!")
+    
+    def image_tag(self):
+        return f"swefactory--{self.task_id}"
+    
     def setup_docker_and_run_test(
         self
     ) -> tuple[str, str, bool]:
@@ -391,7 +380,7 @@ class TestAnalysisAgent(Agent):
         os.makedirs(cur_build_image_dir, exist_ok=True)
         build_image_logger = setup_logger(self.task_id, Path(f'{cur_build_image_dir}/build_image.log'))
         # image_name = f"{self.task_id}:latest_{self.setup_dockerfile_num}"
-        image_name = f"{self.task_id}-dockerfile{self.setup_dockerfile_num}:latest"
+        image_name = self.image_tag()
        
         try:
             self.build_docker_image(dockerfile,
@@ -434,6 +423,23 @@ class TestAnalysisAgent(Agent):
         summary += test_summary
         success = test_success
 
+        if success:
+            # Push container to remote repository if DOCKER_REPOSITORY is set
+            docker_repository = os.environ.get("DOCKER_REPOSITORY", "")
+            print("Test succeed, try pushing", f"repo={docker_repository}, success={success}")
+            if docker_repository and success:
+                try:
+                    remote_tag = f"{docker_repository}:{image_name}"
+                    build_image_logger.info(f"Pushing container {image_name} to {remote_tag}...")
+                    push_image(self.client, image_name, remote_tag, build_image_logger)
+                    tool_output += f"Container pushed to {remote_tag}.\n"
+                    summary += "Container pushed to remote.\n"
+                except Exception as e:
+                    build_image_logger.error(f"Failed to push container: {e}")
+                    tool_output += f"Warning: Failed to push container to remote: {e}\n"
+                    # Don't fail the entire test run if push fails
+                
+
         return tool_output, summary, success
 
     def run_test(self, eval_script: str) -> tuple[str, str, bool]:
@@ -447,7 +453,7 @@ class TestAnalysisAgent(Agent):
         os.makedirs(cur_test_dir, exist_ok=True)
         run_test_logger = setup_logger(self.task_id, Path(f'{cur_test_dir}/run_test.log'))
         # test_image_name = f"{self.task_id}:latest_{self.setup_dockerfile_num}"
-        test_image_name = f"{self.task_id}-dockerfile{self.setup_dockerfile_num}:latest"
+        test_image_name = self.image_tag()
         # test_container_name =  f"{self.task_id}:test_{self.run_test_num}"
         test_container_name = f"{self.task_id}-test{self.run_test_num}"
         instance_id = self.task_id
@@ -560,26 +566,11 @@ class TestAnalysisAgent(Agent):
                 summary += 'Obtain test results successfully.'
                 success = True
                 
-                # Push container to remote repository if DOCKER_REPOSITORY is set
-                docker_repository = os.environ.get("DOCKER_REPOSITORY", "")
-                if docker_repository and container:
-                    try:
-                        remote_tag = f"{docker_repository}/{test_container_name}:latest"
-                        run_test_logger.info(f"Pushing container {test_container_name} to {remote_tag}...")
-                        push_container(self.client, container, remote_tag, run_test_logger)
-                        tool_output += f"Container pushed to {remote_tag}.\n"
-                        summary += "Container pushed to remote.\n"
-                    except Exception as e:
-                        run_test_logger.error(f"Failed to push container: {e}")
-                        tool_output += f"Warning: Failed to push container to remote: {e}\n"
-                        # Don't fail the entire test run if push fails
 
         finally:
-           
             # Remove instance container + image, close logger
             cleanup_container(self.client, container,run_test_logger)
             
-            remove_image(self.client, test_image_name, run_test_logger)
             close_logger(run_test_logger)
         self.dump_tool_sequence(self.get_latest_test_analysis_output_dir())
         return tool_output, summary, success

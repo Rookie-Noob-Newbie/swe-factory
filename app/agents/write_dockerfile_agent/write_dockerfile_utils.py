@@ -85,7 +85,9 @@ ENV TZ=Etc/UTC
 # Change mirror and update (MUST)
 RUN sed -i 's/archive.ubuntu.com/mirrors.cloud.aliyuncs.com/g' /etc/apt/sources.list && apt update 
 # System dependencies installation. Installs essential tools and libraries required for clone and patch (Required)
-RUN apt install -y wget git patch && rm -rf /var/lib/apt/lists/*
+# DO NOT install repo related tools here!
+RUN apt install -y wget git patch python3-pip python3-venv python3-dev pkg-config build-essential && rm -rf /var/lib/apt/lists/*
+RUN pip config set global.index-url http://mirrors.cloud.aliyuncs.com/pypi/simple/ && pip config set global.trusted-host mirrors.cloud.aliyuncs.com
 # set default workdir to testbed. (Required)
 WORKDIR /testbed/
 # The three lines above should NEVER change, so as to reuse layer.
@@ -93,14 +95,11 @@ WORKDIR /testbed/
 # Fetch source code. Clones source code, checkouts to the taget version
 RUN /bin/bash -c "git clone https://github.com/python/mypy /testbed &&     chmod -R 777 /testbed &&     cd /testbed &&     git reset --hard 6de254ef00f99ce5284ab947f2dd1179db6d28f6 &&     git remote remove origin"
 
-
 # Install package and environment manager required by the repo. (Example)
 RUN wget 'https://repo.anaconda.com/miniconda/Miniconda3-py311_23.11.0-2-Linux-x86_64.sh' -O miniconda.sh     && bash miniconda.sh -b -p /opt/miniconda3     && rm miniconda.sh
 ENV PATH=/opt/miniconda3/bin:$PATH
 RUN conda init --all     && conda config --append channels conda-forge
-RUN /bin/bash -c "source /opt/miniconda3/etc/profile.d/conda.sh &&     conda create -n testbed python=3.7 -y &&     conda activate testbed &&     pip install pytest==6.2.5 typing_extensions==3.10"
-# If you use python, please change index url
-RUN pip config set global.index-url http://mirrors.cloud.aliyuncs.com/pypi/simple/
+RUN /bin/bash -c "source /opt/miniconda3/etc/profile.d/conda.sh &&     conda create -n testbed python=3.8 -y &&     conda activate testbed &&     pip install pytest==6.2.5 typing_extensions==3.10"
 
 # Target Project setup. Configures it, and installs project-specific dependencies (Example)
 RUN /bin/bash -c "source /opt/miniconda3/etc/profile.d/conda.sh &&     conda activate testbed &&     git clone https://github.com/python/mypy /testbed && chmod -R 777 /testbed && cd /testbed && git reset --hard 6de254ef00f99ce5284ab947f2dd1179db6d28f6 && git remote remove origin && pip install -r test-requirements.txt && pip install -e ."

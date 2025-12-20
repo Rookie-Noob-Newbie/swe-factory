@@ -769,13 +769,14 @@ def generate_patch(task: SweTask) -> None:
     # Use the repo_cache_path for generating the diff (it has all commits)
     repo_path = task.repo_cache_path if hasattr(task, 'repo_cache_path') else task.project_path
     patch = apputils.git_diff_commits(repo_path, base_commit, solution_commit)
-    
-    if patch:
-        task.patch = patch
-        log.log_and_always_print(f"Task {task.task_id}: Generated patch ({len(patch)} bytes)")
-    else:
-        task.patch = ""
-        log.log_and_always_print(f"Task {task.task_id}: No changes found between commits")
+    test_patch = apputils.extract_test_patch(patch)
+    task.patch = patch
+    task.test_patch = test_patch
+    # Also update task_info dictionary so agents_manager gets the updated values
+    if hasattr(task, 'task_info'):
+        task.task_info['patch'] = patch
+        task.task_info['test_patch'] = test_patch
+    log.log_and_always_print(f"Task {task.task_id}: Generated patch ({len(patch)} bytes)")
 
 
 def do_inference(
@@ -795,6 +796,15 @@ def do_inference(
     if hasattr(python_task, 'solution_commit') and hasattr(python_task, 'patch'):
         if not python_task.patch or python_task.patch.strip() == "":
             generate_patch(python_task)
+            # Update meta.json with the generated patch and test_patch
+            meta_file = pjoin(task_output_dir, "meta.json")
+            if os.path.exists(meta_file):
+                with open(meta_file, 'r') as f:
+                    meta = json.load(f)
+                meta['task_info']['patch'] = python_task.patch
+                meta['task_info']['test_patch'] = python_task.test_patch
+                with open(meta_file, 'w') as f:
+                    json.dump(meta, f, indent=4)
     logger.add(
         pjoin(task_output_dir, "info.log"),
         level="DEBUG",

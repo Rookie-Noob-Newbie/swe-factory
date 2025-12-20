@@ -337,6 +337,43 @@ def parse_function_invocation(
 
     return function_name, arguments
 
+def extract_test_patch(patch: str) -> str:
+    """extract test files in git patch, with path like tests"""
+    def is_test_file(file_path: str) -> bool:
+        """Determine if a file path represents a test file."""
+        test_keywords = ["test", "e2e", "spec"]
+        path_lower = file_path.lower()
+        return any(keyword in path_lower for keyword in test_keywords)
+    
+    if not patch:
+        return ""
+    
+    lines = patch.split('\n')
+    test_patches = []
+    current_patch = []
+    is_in_test_file = False
+    
+    for line in lines:
+        if line.startswith('diff --git'):
+            if is_in_test_file and current_patch:
+                test_patches.append('\n'.join(current_patch))
+            
+            current_patch = [line]
+            parts = line.split()
+            if len(parts) >= 4:
+                file_path = parts[2][2:]
+                is_in_test_file = is_test_file(file_path)
+            else:
+                is_in_test_file = False
+        else:
+            if current_patch or is_in_test_file:
+                current_patch.append(line)
+    
+    if is_in_test_file and current_patch:
+        test_patches.append('\n'.join(current_patch))
+    
+    return '\n'.join(test_patches)
+
 
 def git_diff_commits(repo_path: str, base_commit: str, target_commit: str) -> str:
     """

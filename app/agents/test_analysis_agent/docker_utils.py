@@ -355,9 +355,9 @@ def build_container(client,test_image_name,test_container_name,instance_id,run_t
             cleanup_container(client, container, run_test_logger)
             raise BuildImageError(instance_id, str(e), run_test_logger) from e
 
-def push_container(
+def push_image(
     client: docker.DockerClient,
-    container,
+    image_tag: str,
     remote_tag: str,
     logger: logging.Logger
 ):
@@ -366,49 +366,38 @@ def push_container(
     
     Args:
         client (docker.DockerClient): Docker client.
-        container (docker.models.containers.Container): Container to push as image.
+        image_tag (str): Local image tag to push.
         remote_tag (str): Remote tag including registry and repository (e.g., registry.example.com/repo/image:tag).
         logger (logging.Logger): Logger to use for output.
     """
-    
-    image_id = None
     try:
-        # Commit the container to create an image
-        logger.info(f"Committing container {container.name} to image...")
-        image = container.commit()
-        image_id = image.id
-        logger.info(f"Container committed with image ID: {image_id}")
-        
-        # Tag the image with the remote tag
-        logger.info(f"Tagging image {image.short_id} as {remote_tag}...")
+        # Tag the local image with the remote tag
+        logger.info(f"Tagging image '{image_tag}' as '{remote_tag}'")
+        image = client.images.get(image_tag)
         image.tag(remote_tag)
-        logger.info(f"Image tagged as {remote_tag}")
         
-        # Push the image to the remote repository
-        logger.info(f"Pushing image {remote_tag} to remote repository...")
-        push_logs = client.images.push(remote_tag, stream=True, decode=True)
+        # Push the image to the remote registry
+        logger.info(f"Pushing image '{remote_tag}' to registry...")
         
-        # Stream and log the push progress
-        for log_line in push_logs:
-            if 'status' in log_line:
-                status = log_line['status']
-                progress = log_line.get('progress', '')
-                logger.info(f"{status} {progress}".strip())
-            if 'error' in log_line:
-                error_msg = log_line['error']
-                logger.error(f"Push error: {error_msg}")
-                raise Exception(f"Failed to push image: {error_msg}")
+        # Push with streaming output
+        for line in client.images.push(remote_tag, stream=True, decode=True):
+            if 'status' in line:
+                status = line['status']
+                progress = line.get('progress', '')
+                layer_id = line.get('id', '')
+                
+                if layer_id:
+                    logger.debug(f"{layer_id}: {status} {progress}")
+                else:
+                    logger.info(status)
+            
+            if 'error' in line:
+                raise Exception(line['error'])
         
-        logger.info(f"Successfully pushed image {remote_tag}")
-        
-        # Delete the local image after successful push
-        logger.info(f"Removing local image {remote_tag}...")
-        client.images.remove(remote_tag, force=True)
-        logger.info(f"Local image {remote_tag} removed successfully")
+        logger.info(f"Successfully pushed image '{remote_tag}'")
         
     except Exception as e:
-        logger.error(f"Failed to push container {container.name}: {e}")
-        logger.error(traceback.format_exc())
+        logger.error(f"Unexpected error while pushing image: {e}")
         raise
 
 class EvaluationError(Exception):
