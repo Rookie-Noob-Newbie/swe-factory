@@ -299,7 +299,7 @@ class TestAnalysisAgent(Agent):
         )
         
 
-        dockerfile_path = f'{cur_build_image_dir}/Dockerfile'
+        dockerfile_path = f'{self.output_dir}/Dockerfile'
         with open(dockerfile_path, "w") as f:
             f.write(dockerfile)
 
@@ -307,7 +307,7 @@ class TestAnalysisAgent(Agent):
         command_output = []  
         capturing = False   
         response = client.api.build(
-            path=cur_build_image_dir,
+            path=self.output_dir,
             tag=image_name,
             rm=True,
             forcerm=True,
@@ -382,6 +382,10 @@ class TestAnalysisAgent(Agent):
         # image_name = f"{self.task_id}:latest_{self.setup_dockerfile_num}"
         image_name = self.image_tag()
        
+        dockerfile_path = f'{cur_build_image_dir}/Dockerfile'
+        with open(dockerfile_path, "w") as f:
+            f.write(dockerfile)
+
         try:
             self.build_docker_image(dockerfile,
                                     cur_build_image_dir,
@@ -418,10 +422,12 @@ class TestAnalysisAgent(Agent):
         finally:
             close_logger(build_image_logger)
 
-        test_output, test_summary, test_success = self.run_test(eval_script)
-        tool_output += test_output
-        summary += test_summary
-        success = test_success
+        success = True
+        for golden in (False, True):
+            test_output, test_summary, test_success = self.run_test(golden)
+            tool_output += test_output
+            summary += test_summary
+            success = success and test_success
 
         if success:
             # Push container to remote repository if DOCKER_REPOSITORY is set
@@ -442,20 +448,23 @@ class TestAnalysisAgent(Agent):
 
         return tool_output, summary, success
 
-    def run_test(self, eval_script: str) -> tuple[str, str, bool]:
+    def run_test(self, goldpatch: bool = True) -> tuple[str, str, bool]:
         tool_output = ""
         summary = ""
         success = False
-        patch = self.task.patch
+
+        patch = self.task.patch if goldpatch else self.task.test_patch
+        output_determinator = "testWithFix" if goldpatch else "testOnly"
+        eval_script = test_analysis_utils.replace_heredoc_content(self.eval_script_skeleton, patch)
         self.run_test_num += 1
         self.reset_tool_sequence()
         cur_test_dir = self.get_latest_test_analysis_output_dir()
         os.makedirs(cur_test_dir, exist_ok=True)
-        run_test_logger = setup_logger(self.task_id, Path(f'{cur_test_dir}/run_test.log'))
+        run_test_logger = setup_logger(self.task_id, Path(f'{cur_test_dir}/run_test.log'), mode="a")
         # test_image_name = f"{self.task_id}:latest_{self.setup_dockerfile_num}"
         test_image_name = self.image_tag()
         # test_container_name =  f"{self.task_id}:test_{self.run_test_num}"
-        test_container_name = f"{self.task_id}-test{self.run_test_num}"
+        test_container_name = f"{self.task_id}-test{self.run_test_num}-{output_determinator}"
         instance_id = self.task_id
         container = None
         test_output_path = f'{cur_test_dir}/test_output.txt'
@@ -466,56 +475,58 @@ class TestAnalysisAgent(Agent):
             run_test_logger.info(f"Container for {instance_id} started: {container.id}")
             tool_output += f"Container {container.id} started.\n"
             summary += "Container started.\n"
+
             # Copy model prediction as patch file to container
-            patch_file = Path(f"{cur_test_dir}/patch.diff")
-            patch_file.write_bytes((patch or "").encode('utf-8'))
-            run_test_logger.info(
-                f"Intermediate patch for {instance_id} written to {patch_file}, now applying to container..."
-            )
-            copy_to_container(container, patch_file, Path("/tmp/patch.diff"))
+            # patch_file = Path(f"{cur_test_dir}/patch.diff")
+            # patch_file.write_bytes((patch or "").encode('utf-8'))
+            # run_test_logger.info(
+            #     f"Intermediate patch for {instance_id} written to {patch_file}, now applying to container..."
+            # )
+            # copy_to_container(container, patch_file, Path("/tmp/patch.diff"))
 
         
-            # Attempt to apply patch to container
-            val = container.exec_run(
-                "git apply -p1 -v /tmp/patch.diff",
-                workdir="/testbed",
-                user="root",
-            )
-            exit_code = val.exit_code
-            output = val.output.decode("utf-8", errors="replace")
+            # # Attempt to apply patch to container
+            # val = container.exec_run(
+            #     "git apply -p1 -v /tmp/patch.diff",
+            #     workdir="/testbed",
+            #     user="root",
+            # )
+            # exit_code = val.exit_code
+            # output = val.output.decode("utf-8", errors="replace")
 
-            if exit_code != 0:
-                run_test_logger.info("Failed to apply patch to container, trying again...")
-                run_test_logger.error(f"git apply returned exit_code={exit_code}. Output:\n{output}")
-                # try "patch --batch --fuzz=5 -p1 -i {patch_path}" to try again
-                val = container.exec_run(
-                    "patch --batch --fuzz=5 -p1 -i /tmp/patch.diff",
-                    workdir="/testbed",
-                    user="root",
-                )
-                if val.exit_code != 0:
-                    run_test_logger.info(f"Apply patch fail:\n{val.output.decode('utf-8')}")
-                    raise EvaluationError(
-                        instance_id,
-                        f"Apply patch fail:\n{val.output.decode('utf-8')}. Check if you apply patch in incorrect directories.",
-                        run_test_logger,
-                    )
-                else:
-                    run_test_logger.info(f"Apply patch success:\n{val.output.decode('utf-8')}")
-            else:
-                run_test_logger.info(f"Apply patch success:\n{val.output.decode('utf-8')}")
-            tool_output += "Patch applied successfully.\n"
-            summary += "Patch applied.\n"
-                    # Get git diff before running eval script
-            git_diff_output_before = (
-                container.exec_run("git diff", workdir="/testbed").output.decode("utf-8").strip()
-            )
-            run_test_logger.info(f"Git diff before:\n{git_diff_output_before}")
+            # if exit_code != 0:
+            #     run_test_logger.info("Failed to apply patch to container, trying again...")
+            #     run_test_logger.error(f"git apply returned exit_code={exit_code}. Output:\n{output}")
+            #     # try "patch --batch --fuzz=5 -p1 -i {patch_path}" to try again
+            #     val = container.exec_run(
+            #         "patch --batch --fuzz=5 -p1 -i /tmp/patch.diff",
+            #         workdir="/testbed",
+            #         user="root",
+            #     )
+            #     if val.exit_code != 0:
+            #         run_test_logger.info(f"Apply patch fail:\n{val.output.decode('utf-8')}")
+            #         raise EvaluationError(
+            #             instance_id,
+            #             f"Apply patch fail:\n{val.output.decode('utf-8')}. Check if you apply patch in incorrect directories.",
+            #             run_test_logger,
+            #         )
+            #     else:
+            #         run_test_logger.info(f"Apply patch success:\n{val.output.decode('utf-8')}")
+            # else:
+            #     run_test_logger.info(f"Apply patch success:\n{val.output.decode('utf-8')}")
+            # tool_output += "Patch applied successfully.\n"
+            # summary += "Patch applied.\n"
+            #         # Get git diff before running eval script
+            # git_diff_output_before = (
+            #     container.exec_run("git diff", workdir="/testbed").output.decode("utf-8").strip()
+            # )
+            # run_test_logger.info(f"Git diff before:\n{git_diff_output_before}")
+
 
             eval_file = Path(f"{self.get_latest_test_analysis_output_dir()}/eval.sh")
             eval_file.write_bytes(eval_script.encode('utf-8'))
             run_test_logger.info(
-                f"Eval script for {instance_id} written to {patch_file}, now applying to container..."
+                f"Eval script for {instance_id} written to {eval_file}, now applying to container..."
             )
             copy_to_container(container, eval_file, Path("/eval.sh"))
 
@@ -523,21 +534,23 @@ class TestAnalysisAgent(Agent):
             result = exec_run_with_timeout(container, "/bin/bash /eval.sh", timeout=self.timeout)
             test_output = result.decode("utf-8")
             
-            with open(test_output_path, "w") as f:
+            with open(test_output_path, "a") as f:
+                f.write(f"<{output_determinator}>\n")
                 f.write(test_output)
-            run_test_logger.info(f"Test output for {instance_id} written to {test_output_path}")
+                f.write(f"</{output_determinator}>\n")
+            run_test_logger.info(f"Test output for {instance_id} ({output_determinator}) written to {test_output_path}")
 
             # Get git diff after running eval script
-            git_diff_output_after = (
-                container.exec_run("git diff", workdir="/testbed").output.decode("utf-8").strip()
-            )
+            # git_diff_output_after = (
+            #     container.exec_run("git diff", workdir="/testbed").output.decode("utf-8").strip()
+            # )
 
-            # Check if git diff changed after running eval script
-            run_test_logger.info(f"Git diff after:\n{git_diff_output_after}")
-            if git_diff_output_after != git_diff_output_before:
-                run_test_logger.info(f"Git diff changed after running eval script")
-                tool_output += "Note: Git diff changed after test execution.\n"
-                summary += "Git diff changed.\n"
+            # # Check if git diff changed after running eval script
+            # run_test_logger.info(f"Git diff after:\n{git_diff_output_after}")
+            # if git_diff_output_after != git_diff_output_before:
+            #     run_test_logger.info(f"Git diff changed after running eval script")
+            #     tool_output += "Note: Git diff changed after test execution.\n"
+            #     summary += "Git diff changed.\n"
 
         except EvaluationError as e:
             error_msg = (f"EvaluationError {instance_id}: {e}\n"

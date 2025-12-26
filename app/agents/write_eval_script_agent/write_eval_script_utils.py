@@ -33,7 +33,7 @@ You will receive the following information:
 
 ### Your Responsibilities:
 1. Ensure the evaluation script properly activates the environment inside the Docker container.
-2. Apply the test patch (if needed) before executing the tests.
+2. Apply the patch (we will try two: one only adds unittests and another adds unittests and fixes issue) before executing the tests.
 3. When available, use the correct test execution commands and setup steps collected by the context retrieval agent.
 4. If guidance from the test_analysis_agent is provided, update or improve your evaluation script according to its suggestions.
 
@@ -46,14 +46,13 @@ The script must execute the provided test files inside the specified Docker envi
 
 ### **Requirements:**
 1. **Activate the environment**: Ensure the correct environment (e.g., Conda, venv) is activated before running the tests.
-2. **Apply the test patch (if required)**: The test patch may need to be applied before running the tests.
-3. **Execute the given test files** using the correct command found by the context retrieval agent.
-4. **Ensure proper cleanup**: After running the tests, any modified files should be reset.
+2. **Apply the patch**: The patch may need to be applied before running the tests.
+3. **Execute the given test files and unittests** using the correct command found by the context retrieval agent.
 
 ### Important Notes:
-1. You must **execute only the specified target test files**, rather than running all tests in the repository.  
+1. You must **execute only the specified target test files and unittests**, rather than running all tests in the repository.  
    - Running all tests can be highly time-consuming and unnecessary.  
-   - Ensure that only the **required test cases** are executed based on the provided test file list.  
+   - Ensure that only the **required test cases** are executed.  
 
 2. **Optimize execution efficiency by combining multiple test commands into a single command** whenever possible.  
    - Avoid running multiple separate test commands if they can be executed in one batch.  
@@ -62,7 +61,7 @@ The script must execute the provided test files inside the specified Docker envi
 3. **Ensure that the output of the evaluation script is concise and structured**, making it easier for the **test log analysis agent** to process.  
    - The test command **must output the names and pass/fail/skip status of each target executed test file**.
    - Avoid excessive debug information or unrelated output in eval script, but **do not suppress key test execution details**.  
-   - Avoid running all tests! **Just run the target tesst file**s.
+   - Avoid running all tests! **Just run the target unittests fixed by gold patch**.
 
 4. **Follow the structure of the reference evaluation script or eval script skeleton whenever available.  
    - Use **a simple, minimalistic structure** similar to the reference eval script to ensure clarity and maintainability.  
@@ -78,6 +77,8 @@ The script must execute the provided test files inside the specified Docker envi
 
 6. You MUST capture the exit code immediately after running the tests using ``rc=$? '', and then echo: ``OMNIGRIL_EXIT_CODE=$rc''. This ensures the judge can determine whether the tests passed successfully.
 
+7. You MUST print ">>>>> Start Test Output" exactly before test (pytest for example), and ">>>>> End Test Output" after it.
+
 Eval script skeleton:
 {eval_script_skeleton}
 
@@ -86,13 +87,10 @@ The script must be wrapped in `<script>` tags. Example:
 
 <script>
 #!/bin/bash
-set -uxo pipefail
-source /opt/miniconda3/bin/activate
+# activate environment
+. /opt/conda/etc/profile.d/conda.sh
 conda activate testbed
 cd /testbed
-pip install -r test-requirements.txt && pip install -e . 
-
-git checkout 6de254ef00f99ce5284ab947f2dd1179db6d28f6 "test-data/unit/check-functions.test" "test-data/unit/check-redefine.test"
 
 # Required: apply test patch to update target tests
 git apply -v - <<'EOF_114329324912'
@@ -100,10 +98,11 @@ git apply -v - <<'EOF_114329324912'
 EOF_114329324912
 
 # Required: run target tests files instead of all tests!
+echo >>>>> Start Test Output
 pytest --no-header -rA --tb=no -p no:cacheprovider -n4 mypy/test/testcheck.py::TypeCheckSuite::check-functions.test mypy/test/testcheck.py::TypeCheckSuite::check-redefine.test
-rc=$?            #Required, save exit code\n 
+rc=$?            #Required, save exit code
+echo >>>>> End Test Output
 echo "OMNIGRIL_EXIT_CODE=$rc" #Required, echo test status
-git checkout 6de254ef00f99ce5284ab947f2dd1179db6d28f6 "test-data/unit/check-functions.test" "test-data/unit/check-redefine.test"
 </script>
 """
 

@@ -252,7 +252,7 @@ def run_instance_setup(
             f.write(test_output)
         logger.info(f"Test output for {instance_id} written to {test_output_path}")
 
-        if mode  != 'not_apply_patch':
+        if mode  == 'apply_patch':
             logger.info(f"Grading answer for {instance_id}...")
             report = get_pred_report(
                 test_spec=test_spec,

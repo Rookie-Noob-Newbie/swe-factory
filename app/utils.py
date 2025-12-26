@@ -82,9 +82,9 @@ def repo_commit_current_changes():
     run_command(commit_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-def clone_repo(clone_link: str, cloned_dir: str):
+def clone_repo(clone_link: str, cloned_dir: str, bare: bool = False):
     """
-    Clone a repo to dest_dir.
+    Clone a repo to dest_dir (without trailing `/`).
 
     Returns:
         - path to the newly cloned directory.
@@ -92,16 +92,24 @@ def clone_repo(clone_link: str, cloned_dir: str):
     dest_dir = os.path.dirname(cloned_dir)  # 获取目录路径
     cloned_name = os.path.basename(cloned_dir)
     clone_cmd = ["git", "clone", clone_link, cloned_name]
+    if bare:
+        if os.path.isdir(cloned_dir): # already cloned
+            return
+        clone_cmd.append("--bare")
+    else:
+        git_dir = pjoin(cloned_dir, ".git")
+        if os.path.isdir(git_dir):
+            return
+        
     create_dir_if_not_exists(dest_dir)
     with cd(dest_dir):
         try:
             run_command(clone_cmd)
-        except Exception as e:
+        except Exception:
             # skip if already cloned by another process
             git_dir = pjoin(cloned_dir, ".git")
-            if os.path.isdir(git_dir):
-                pass
-            raise e
+            if not os.path.isdir(git_dir):
+                raise
 
     # cloned_dir = pjoin(dest_dir, cloned_name)
     # return cloned_dir
@@ -112,18 +120,13 @@ def clone_repo_and_checkout(
     # dest_dir: str, cloned_name: str
 ):
     """
-    Clone a repo to dest_dir, and checkout to commit `commit_hash`.
-
-    Returns:
-        - path to the newly cloned directory.
+    Clone a repo to dest_dir, and checkout to commit `commit_hash`. This will
+    remove original directory.
     """
     # cloned_dir = 
-    if clone_link.endswith('.git'):
-        clone_repo(clone_link, cloned_dir)
-    else:
-        if os.path.isdir(cloned_dir):
-            shutil.rmtree(cloned_dir)
-        shutil.copytree(clone_link, cloned_dir)
+    if os.path.isdir(cloned_dir):
+        shutil.rmtree(cloned_dir)
+    clone_repo(clone_link, cloned_dir)
     if commit_hash != "":
         checkout_cmd = ["git", "checkout", commit_hash]
         with cd(cloned_dir):

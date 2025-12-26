@@ -490,23 +490,16 @@ def make_swe_tasks(
         for task_id in all_task_ids:
             setup_info = {}
             task_info = tasks_map[task_id]
-            task_start_time_s = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            repo_cache_name = f"{task_info['repo']}_cache"
-            repo_cache_dir =  pjoin(setup_dir, repo_cache_name)
+            repo_cache_dir =  pjoin(setup_dir, task_info['repo'])
             if not os.path.isdir(repo_cache_dir):
                 github_link = f"https://github.com/{task_info['repo']}.git"
-                future = executor.submit(apputils.clone_repo_and_checkout, github_link, "", repo_cache_dir)
+                future = executor.submit(apputils.clone_repo, github_link, repo_cache_dir, True)
                 futures.append(future)
             else:
                 # 可以在这里打印日志或直接跳过
                 print(f"Cache already exists: {repo_cache_dir}, skip clone.")
-            # build diff on fly
 
-            task_repo_name = f'{task_id}_{task_start_time_s}'
-            task_repo_dir =  pjoin(setup_dir,task_repo_name)
-            apputils.create_dir_if_not_exists(task_repo_dir)
-
-            setup_info['repo_path'] = task_repo_dir
+            # Note: task_repo_dir will be created later in do_inference inside task_output_dir
             setup_info['repo_cache_path'] = repo_cache_dir
             task = RawSweTask(task_id, setup_info, task_info,client)
             all_tasks.append(task)
@@ -767,8 +760,12 @@ def generate_patch(task: SweTask) -> None:
     log.log_and_always_print(f"Task {task.task_id}: Generating patch from {base_commit[:8]} to {solution_commit[:8]}")
     
     # Use the repo_cache_path for generating the diff (it has all commits)
-    repo_path = task.repo_cache_path if hasattr(task, 'repo_cache_path') else task.project_path
+    repo_path = task.project_path
     patch = apputils.git_diff_commits(repo_path, base_commit, solution_commit)
+    if patch == "":
+        log.log_and_always_print(f"Task {task.task_id}: No patch to generate (commits not found)")
+        return
+
     test_patch = apputils.extract_test_patch(patch)
     task.patch = patch
     task.test_patch = test_patch
@@ -788,14 +785,25 @@ def do_inference(
     if not getattr(globals, "disable_all_docker", False):
         client = docker.from_env()
     apputils.create_dir_if_not_exists(task_output_dir)
-    # github_link = f'https://github.com/{python_task.repo_name}.git'
+    
+    # Create task_repo_dir inside task_output_dir
+    task_repo_dir = pjoin(task_output_dir, "repo")
+    apputils.create_dir_if_not_exists(task_repo_dir)
+    
+    # Set the paths on the task
+    python_task.repo_path = task_repo_dir
+    python_task.task_output_dir = task_output_dir
+    
+    # Clone and checkout the repository
     commit_hash = python_task.commit
-    apputils.clone_repo_and_checkout(python_task.repo_cache_path,commit_hash,python_task.project_path)
+    apputils.clone_repo_and_checkout(python_task.repo_cache_path, commit_hash, python_task.project_path)
     
     # Generate patch if task has solution_commit and patch is empty
     if hasattr(python_task, 'solution_commit') and hasattr(python_task, 'patch'):
         if not python_task.patch or python_task.patch.strip() == "":
             generate_patch(python_task)
+            if python_task.patch == "":
+                return False
             # Update meta.json with the generated patch and test_patch
             meta_file = pjoin(task_output_dir, "meta.json")
             if os.path.exists(meta_file):
@@ -813,10 +821,10 @@ def do_inference(
             " | <level>{message}</level>"
         ),
     )
-
+ 
     start_time = datetime.now()
-
-    
+ 
+     
     try:
         agents_manager = AgentsManager(python_task,
                                         task_output_dir,
@@ -832,16 +840,25 @@ def do_inference(
                                         skip_test_analysis = globals.skip_test_analysis,
                                         )
         agents_manager.run_workflow()
+        # Remove docker image after workflow finishes to prevent disk usage growth
+        if client and 'test_analysis_agent' in agents_manager.agents_dict:
+            from app.agents.test_analysis_agent.docker_utils import remove_image
+            image_name = agents_manager.agents_dict['test_analysis_agent'].image_tag()
+            try:
+                remove_image(client, image_name)
+                logger.info(f"Removed docker image {image_name} after task completion.")
+            except Exception as e:
+                logger.error(f"Failed to remove docker image {image_name}: {e}")
         run_ok = True
         end_time = datetime.now()
-
+ 
         dump_cost(start_time, end_time, task_output_dir, python_task.project_path)
     finally:
         # python_task.reset_project()
         python_task.remove_project()
         if client:
             client.close()
-
+ 
     return run_ok
 
 

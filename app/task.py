@@ -42,6 +42,7 @@ class SweTask(Task):
     problem_statement: str
     repo_path: str
     repo_cache_path: str
+    task_output_dir: str  # Added: directory where task outputs are stored
     commit: str
     solution_commit: str
     # env_name: str

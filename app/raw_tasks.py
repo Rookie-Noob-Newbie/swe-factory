@@ -57,8 +57,9 @@ class RawSweTask(RawTask):
         return SweTask(
             task_id=task_id,
             problem_statement=task_info["problem_statement"],
-            repo_path=setup_info["repo_path"],
+            repo_path="",  # Will be set in do_inference
             repo_cache_path=setup_info["repo_cache_path"],
+            task_output_dir="",  # Will be set in do_inference
             # env_name=setup_info["env_name"],
             # pre_install_cmds=setup_info["pre_install"],
             # install_cmd=setup_info["install"],

@@ -1,5 +1,5 @@
 from app.data_structures import MessageThread
-from app.task import Task
+from app.task import SweTask
 from app.agents.write_dockerfile_agent import WriteDockerfileAgent
 from app.agents.test_analysis_agent import TestAnalysisAgent
 from app.agents.write_eval_script_agent import WriteEvalScriptAgent
@@ -45,7 +45,7 @@ class AgentsManager:
     Simple manager to orchestrate LLM-based agents.
     """
     def __init__(self,
-                task: Task,
+                task: SweTask,
                 output_dir: str,
                 client: docker.DockerClient,
                 start_time: datetime,

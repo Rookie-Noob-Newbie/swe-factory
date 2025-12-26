@@ -56,7 +56,25 @@ The Dockerfile must ensure that the provided test files can be executed correctl
 1. You are FORBIDDEN to run tests in the dockerfile, tests will be run using eval script.
 2. When building the Dockerfile, you MUST prioritize using package managers such as APT, Maven, or NPM etc to set up the environment efficiently.
 3. Ensure shell compatibility by using `/bin/bash` as the default shell environment to avoid runtime issues.
-4. Pay more attention to python base version. You may modify base image if required. If version is too old (python2, python3 <= 3.8), you may give it up. 
+4. Instead of using Ubuntu/Debian Docker image, You **MUST** directly use our provided `swefactory-python-version` to setup python environment. It is built from
+
+<dockerfile>
+FROM continuumio/miniconda3:25.3.1-1
+RUN sed -i 's|deb.debian.org|mirrors.cloud.aliyuncs.com|g' /etc/apt/sources.list.d/debian.sources && \\
+ apt update && \\
+ rm -rf /var/lib/apt/lists/*
+RUN conda create -n testbed python={python_version} -y; \\
+ echo "conda activate testbed" >> ~/.bashrc; \\
+ conda activate testbed; \\
+ pip config set global.index-url http://mirrors.cloud.aliyuncs.com/pypi/simple/; \\
+ pip config set global.trusted-host mirrors.cloud.aliyuncs.com; \\
+</dockerfile>
+
+- It provides conda on debian 12, a python env named `testbed` with given version, and change mirror source.
+- 
+- Available python versions include 2.7 and 3.5 to 3.14. Conda does not provide other versions.
+- If a different base image is really necessary, please also change mirror to aliyun.
+
 5. It is recommended to use `COPY` to copy local files into the Docker container, and use of well-known basic image (python, miniforge), to avoid network stuff.
 6. DO NOT run tests in the Dockerfile**.  
    - Do not include commands like `npm test`, `pytest`, or `mvn test` in the Dockerfile.  
@@ -69,32 +87,26 @@ The Dockerfile must ensure that the provided test files can be executed correctl
    **Why is this important?**  
    - If you modify the repository’s source code but have already installed a pre-built package from the registry, your system may load the installed package instead of your local code, **leading to incorrect test results and making debugging difficult**.  
    - Using development mode installation (`pip install -e .`, `npm link`, `mvn install`) ensures that the system always references the latest local repository code, preventing version mismatches and ensuring that modifications are properly reflected in subsequent tests.
-10. If you frequently encounter issues with the base image (like version not found), consider change base image and manually installing dependencies (node,maven,java,python,etc.).
 
 ### **Example Format:**
 The Dockerfile must be wrapped in `<dockerfile>` tags. Example:
 
 <dockerfile>
 # Base image specification. Defines the foundation OS and python version for the container (Required)
-FROM --platform=linux/x86_64 python:3.10-trixie
-ENV DEBIAN_FRONTEND=noninteractive
-ENV TZ=Etc/UTC
-
-# Change mirror and update (MUST)
-RUN sed -i 's|deb.debian.org|mirrors.cloud.aliyuncs.com|g' /etc/apt/sources.list.d/debian.sources && apt update && rm -rf /var/lib/apt/lists/*
-RUN pip config set global.index-url http://mirrors.cloud.aliyuncs.com/pypi/simple/ && pip config set global.trusted-host mirrors.cloud.aliyuncs.com
+FROM swefactory-python-3.12
+# Fetch source code. same as git clone {{task.repo_name}} but avoid network stuff; guarantee to exist
+COPY repo /testbed
 # set default workdir to testbed. (Required)
 WORKDIR /testbed/
-# Fetch source code. same as git clone {{task.repo_name}} but avoid network stuff
-CP {{task.project_path}} /testbed
 # Checkouts to the target version
-RUN chmod -R 777 /testbed && cd /testbed && git reset --hard {{task.commit}} && git remote remove origin
-# The three lines above should NEVER change, so as to reuse layers.
+git reset --hard {{task.commit}} && git remote remove origin
+# The lines above should NEVER change (except python version), so as to reuse layers.
 
 # Install package and environment manager required by the repo. (Example)
 RUN apt install -y g++
 # Target Project setup. Configures it, and installs project-specific dependencies (Example)
-RUN pip install -r requirements.txt && pip install -e .
+# Note for conda, `-lc` is required for env activate; multicommand can split by `;`
+RUN bash -lc 'pip install -r requirements.txt; pip install -e .'
 </dockerfile>
 """
 
@@ -117,22 +129,16 @@ The Dockerfile must ensure that the provided test files can be executed correctl
 2. When building the Dockerfile, you MUST prioritize using package managers such as Conda, Maven, or NPM etc to set up the environment efficiently.
 3. Ensure shell compatibility by using `/bin/bash` as the default shell environment to avoid runtime issues.  For example, **do not use `FROM alpine:latest`**, as it lacks `/bin/bash` by default, which may cause runtime errors. Instead, use a base image like `ubuntu:22.04` or `debian:bookworm` that includes Bash by default.
 4. Pay more attention when using Ubuntu-based images**, as different versions may have variations in default packages, dependency resolution, and package manager behavior, which could lead to unexpected errors.
-5. DO NOT use `COPY` to copy local files** into the Docker container.  
-   - For example, avoid using `COPY package.json /testbed/` or `COPY requirements.txt /testbed/`.  
-   - Instead, all files should be retrieved directly by **cloning the repository** inside the container to ensure a fully reproducible environment.
-6. DO NOT run tests in the Dockerfile**.  
+5. DO NOT run tests in the Dockerfile**.  
    - Do not include commands like `npm test`, `pytest`, or `mvn test` in the Dockerfile.  
    - Tests will be executed separately, and running them during the Docker build stage is an unnecessary overhead.
    - You can skip tests during environment setup because this is not your job.
-7. If there is a reference Dockerfile, use it as a guideline.   
-8. Do not use ENTRYPOINT.
-9. Please install necessary essential tools and libraries required for development and runtime, such as git etc.
-10. When setting up dependencies for the target repository (e.g., `torch 3.33`), **DO NOT** install the package directly from external registries (e.g., PyPI, NPM, Maven Central) using commands like `pip install <package>` (e.g., `pip install torch`).  
+6. If there is a reference Dockerfile, use it as a guideline.   
+7. Do not use ENTRYPOINT.
+8. Please install necessary essential tools and libraries required for development and runtime, such as git etc.
+9. When setting up dependencies for the target repository (e.g., `torch 3.33`), **DO NOT** install the package directly from external registries (e.g., PyPI, NPM, Maven Central) using commands like `pip install <package>` (e.g., `pip install torch`).  
    Instead, **you can install the repository itself in development mode** (`pip install -e .` for Python, `npm link` for Node.js, or `mvn install` for Java) to ensure that the local repository’s code is correctly referenced during execution.
-   **Why is this important?**  
-   - If you modify the repository’s source code but have already installed a pre-built package from the registry, your system may load the installed package instead of your local code, **leading to incorrect test results and making debugging difficult**.  
-   - Using development mode installation (`pip install -e .`, `npm link`, `mvn install`) ensures that the system always references the latest local repository code, preventing version mismatches and ensuring that modifications are properly reflected in subsequent tests.
-11. **You MUST use `ubuntu` image as the base image and manually install dependencies **, to avoid issues related to unavailable or broken images. This approach ensures that the Dockerfile builds successfully and the environment is properly set up. For example, you can use:
+10. **You MUST use `ubuntu` image as the base image and manually install dependencies **, to avoid issues related to unavailable or broken images. This approach ensures that the Dockerfile builds successfully and the environment is properly set up. For example, you can use:
     ```dockerfile
     FROM ubuntu:xx.xx
     ```
@@ -200,7 +206,7 @@ def write_dockerfile_with_retries(
     task: Task,
     retries=3,
     print_callback: Callable[[dict], None] | None = None,
-) -> tuple[str, float, int, int]:
+) -> str:
     """
     Since the agent may not always write an applicable patch, we allow for retries.
     This is a wrapper around the actual run.
