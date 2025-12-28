@@ -204,8 +204,8 @@ class ContextRetrievalAgent(Agent):
             collated_tool_response = ""
             
             for api_call in json_api_calls:
-                func_name, func_args = parse_function_invocation(api_call)
                 try:
+                    func_name, func_args = parse_function_invocation(api_call)
                     arg_spec = inspect.getfullargspec(getattr(context_retrieval_utils.RepoBrowseManager, func_name))
 
                     arg_names = arg_spec.args[1:]  # first parameter is self
@@ -246,20 +246,20 @@ class ContextRetrievalAgent(Agent):
 
             # thought -> action
             if context_retrieval_round < self.max_context_retrieval_round:
-                msg = """
-                Let's analyze the collected information and answer these questions:
+                msg = """\
+Let's analyze the collected information and answer these questions:
 
-                1. If there is no specific requirement from the test_analysis_agent, or it has already been satisfied, then determine whether the current information about environment setup and test execution is sufficient. If not, identify what files, contexts, or details are missing, and propose the next appropriate actions based on the basic information from the repository. A good place to start would be inspecting the repository structure and reviewing key documents like `README.md`, `CONTRIBUTING.md`, and basic CI configurations. Avoid aggressive actions like performing deep repository browsing if not explicitly required.
+1. If there is no specific requirement from the test_analysis_agent, or it has already been satisfied, then determine whether the current information about environment setup and test execution is sufficient. If not, identify what files, contexts, or details are missing, and propose the next appropriate actions based on the basic information from the repository. A good place to start would be inspecting the repository structure and reviewing key documents like `README.md`, `CONTRIBUTING.md`, and basic CI configurations. Avoid aggressive actions like performing deep repository browsing if not explicitly required.
 
-                2. If there are specific requirements from the test_analysis_agent, have these been fully satisfied by the collected information? If yes, you can stop here and provide a detailed summary of all collected information that meets those requirements. The summary must strictly preserve the original content and clearly indicate each section’s source using the format: [Section Title from filename]...[/Section Title from filename].
+2. If there are specific requirements from the test_analysis_agent, have these been fully satisfied by the collected information? If yes, you can stop here and provide a detailed summary of all collected information that meets those requirements. The summary must strictly preserve the original content and clearly indicate each section’s source using the format: [Section Title from filename]...[/Section Title from filename].
 
-                [Environment Setup from README.md]
-                To install test dependencies, run:
-                pip install -r requirements-test.txt
-                [/Environment Setup from README.md]
+[Environment Setup from README.md]
+To install test dependencies, run:
+pip install -r requirements-test.txt
+[/Environment Setup from README.md]
 
-                3. If the information is sufficient, stop and provide the detailed summary as described above.
-                """
+3. If the information is sufficient, stop and provide the detailed summary as described above.
+"""
 
 
                 # if isinstance(common.SELECTED_MODEL, ollama.OllamaModel):

@@ -45,6 +45,7 @@ You will:
    - `write_dockerfile_agent`
    - `write_eval_script_agent`
    - `context_retrieval_agent`
+   If you think an agent is innocent, you may remain guidance empty.
 
 Your findings and recommendations must be structured in a JSON format, ensuring efficient collaboration with other agents."""
 
@@ -150,6 +151,7 @@ Given the test log and the target tests, analyze the results and determine the n
 - If the tests failed due to **environment setup issues**, analyze whether the problem comes from:
   - The **Dockerfile** (e.g., incorrect dependencies, wrong OS, missing configurations).
   - The **evaluation script** (e.g., incorrect test commands, wrong paths, missing environment activation, mismatch with unit tests solved by the gold patch).
+  - Simply ignore conda update / pip update warning, unless it is root cause of error
 - Sometimes, tests may fail due to incorrect versions of specific dependencies. Be sure to check the versions of critical dependencies to ensure compatibility.
 - If there are missing dependencies or unknown errors, consider whether additional context retrieval is required.
 - Tests should not be run in the Dockerfile**; skip tests during environment setup and run them in the evaluation script.
@@ -162,12 +164,18 @@ Given the test log and the target tests, analyze the results and determine the n
     1. Always include the original error message and a brief description of what is missing or suspected to be the cause.
     2. Clearly specify what information or files should be searched for. For environment or dependency issues, recommend files such as requirements.txt, environment.yml, Dockerfile, setup.py, pyproject.toml, etc. For test or evaluation issues, suggest looking for files such as  eval*.sh, pytest.ini, .github/workflows/*, etc. 
     3. Additionally, encourage reviewing documentation files like README.md, CONTRIBUTING.md, or any docs in the root or docs/ directory for relevant setup or testing instructions (Contributing file often contains some testing instruction).
+    4. Always add guidance to at least one of dockerfile agent or eval script agent if you guide to context retrival agent, otherwise nothing is rewritten and error will replay.
+- If you encounter network issue, simply put all guidance empty and set is_finish to false; we will rerun it. 
+- If you think the issue is unsolvable, you may simply set is_finish to true, sparing effort; for example:
+  1. Golden patch does not solve any unittest.
+  2. Dependency of project has unsolvable conflicts
+  3. Some dependency have become missing, like 404 file, super old versions (numpy <= 1.8)...
 
 ### **Output Example**
 Provide your answer in JSON format:
 ```json
 {
-    "is_finish": true/false,  # If tests passed and everything is correct, set this to true.
+    "is_finish": true/false,  # If tests passed and everything is correct or the issue is considered unsolvable, set this to true.
     "guidance_for_write_dockerfile_agent": "<Provide detailed guidance if modifications are needed>",
     "guidance_for_write_eval_script_agent": "<Provide detailed guidance if modifications are needed>",
     "guidance_for_context_retrieval_agent": "<Specify what additional information from the target repository is needed, if any>",
@@ -260,7 +268,7 @@ Provide your answer in JSON format:
 """
 
 
-def run_with_retries( msg_thread: MessageThread, disable_context_retrieval=False,disable_run_test=False, enable_web_search = False, retries=3,print_callback: Callable[[dict], None] | None = None) -> tuple[str | None, list[MessageThread]]:
+def run_with_retries( msg_thread: MessageThread, disable_context_retrieval=False,disable_run_test=False, enable_web_search = False, retries=3,print_callback: Callable[[dict], None] | None = None) -> str | None:
    
     for idx in range(1, retries + 1):
         logger.debug(

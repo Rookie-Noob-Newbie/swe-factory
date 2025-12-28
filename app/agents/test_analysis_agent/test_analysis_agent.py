@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import re
 from loguru import logger
 from app.agents.agent import Agent
 from app.data_structures import FunctionCallIntent, MessageThread
@@ -84,44 +85,40 @@ class TestAnalysisAgent(Agent):
         output_dir = f'{self.test_analysis_dir}_{self.analysis_count}'
         return output_dir
 
-    def get_latest_test_log(self) -> str:
-        """Read the latest test_output.txt produced by run_test."""
-        test_dir = self.get_latest_test_analysis_output_dir()
-        path = os.path.join(test_dir, "test_output.txt")
-        try:
-            return Path(path).read_text()
-        except FileNotFoundError:
-            return ""
-    
-
-
-    def get_test_log_with_line_numbers(self) -> str:
-        test_log = self.get_latest_test_log()
-        lines = test_log.splitlines()
-        
-       
-        width = len(str(len(lines)))
-        full_formatted = [f"{i + 1:>{width}}   {line}" for i, line in enumerate(lines)]
-        
-        if len(full_formatted) <= MAX_LINE_NUM:
-            log_body = "\n".join(full_formatted)
-            return f'Test log:\n{log_body}\n\n'
-
+    def _truncate_log(self, content: str) -> str:
+        n_lines = content.count('\n')
+        if n_lines < MAX_LINE_NUM:
+            return content
+        lines = content.splitlines()
         
         head_size = MAX_LINE_NUM // 2
         tail_size = MAX_LINE_NUM - head_size
         
-        head = full_formatted[:head_size]
-        tail = full_formatted[-tail_size:]
+        head = lines[:head_size]
+        tail = lines[-tail_size:]
+        omission = f"[..., {len(lines) - head_size - tail_size} lines omitted ...]"
         
-       
-        omission = " " * width + "   [..., {} lines omitted ...]".format(
-            len(full_formatted) - head_size - tail_size)
-        
-        truncated_log = "\n".join(head + [omission] + tail)
-        
-        return f'Test log (showing first {head_size} & last {tail_size} lines):\n{truncated_log}\n\n'
+        return "\n".join(head + [omission] + tail)
 
+    def _golden_to_name(self, golden: bool) -> str:
+        return "testWithFix" if golden else "testOnly"
+    
+    def _read_latest_test_log(self, golden: bool) -> str:
+        test_dir = self.get_latest_test_analysis_output_dir()
+        name = self._golden_to_name(golden)
+        path = os.path.join(test_dir, f"test_output_{name}.txt")
+        try:
+            logs = Path(path).read_text()
+            return f"<{name}>\n{self._truncate_log(logs)}\n</{name}>"
+        except FileNotFoundError:
+            return ""
+
+    def get_test_log_with_line_numbers(self) -> str:
+
+        testOnly = self._read_latest_test_log(False)
+        testWithPatch = self._read_latest_test_log(True)
+        return f"Test log:\n{testOnly}\n{testWithPatch}\n\n"
+    
     def run_task(self, disable_context_retrieval= False, print_callback=None) -> tuple[str, str, bool]:
         """
         2. Read and format the test log
@@ -143,7 +140,7 @@ class TestAnalysisAgent(Agent):
             build_image_status = False
         else:
             tool_output, _, success = self.dispatch_intent(intent)
-            build_image_status = success and ("Image built successfully" in tool_output)
+            build_image_status = ("Image built successfully" in tool_output)
         if self.client is None:
             print_acr(
                 'Docker disabled; skipping build/run.',
@@ -171,9 +168,18 @@ class TestAnalysisAgent(Agent):
             test_log = self.get_test_log_with_line_numbers()
             self.add_user_message(test_log)
         else:
-            logger.error(tool_output)
-            logger.error('some problem in running tests')
-            return None, f'{self.agent_id} fails, somt error happens', False
+            # Docker built successfully but test validation failed
+            # This is still valuable information that needs to be analyzed by LLM
+            build_image_status  = True
+            print_acr(
+                'Build Image Successfully but Test Validation Failed!',
+                f"Task {self.task.task_id} Iteration ROUND {self.iteration_num}  test analysis ",
+                print_callback=print_callback,
+            )
+            test_log = self.get_test_log_with_line_numbers()
+            self.add_user_message(test_log)
+            # Continue to LLM analysis instead of returning early
+        
         # if we judge that we achieve the goal, terminate the process
         # if test log show that it fails, we go to plan for futrure directions
         # judge whether achieve the goal, if not planning for the work in the next stage.
@@ -183,7 +189,6 @@ class TestAnalysisAgent(Agent):
                 print_callback=print_callback,
             )
             
-        success =False
         analysis = test_analysis_utils.run_with_retries(self.msg_thread,disable_context_retrieval=disable_context_retrieval,print_callback=print_callback)
         task_output = analysis
         analysis_file = Path(f"{self.get_latest_test_analysis_output_dir()}/analysis.json")
@@ -201,12 +206,23 @@ class TestAnalysisAgent(Agent):
             to_save = {}
 
         to_save['build_image_status'] = build_image_status
+        # If the environment is too hard for agent to setup, the agent will mark is_finish = True and exit with success = False
+        # In that case, we consider the task as unsolvable and discard the current sample.
+        to_save['solvable'] = True
+        if success == False and to_save.get('is_finish') == True:
+            # agent fail to judge
+            to_save['is_finish'] = True
+            to_save['solvable'] = False
+            task_output=json.dumps(to_save)
+            summary = "Agent's is_finish incorrect."
+            success = False
 
-        if task_output is None:
+        elif task_output is None:
+            to_save['is_finish'] = False
+            task_output=json.dumps(to_save)
             summary = "The tool returned nothing. The main agent probably did not provide enough clues."
             success = False
-          
-            
+              
         else:
             summary = "The tool returned the selected search APIs in json format generated by another agent."
             success = True
@@ -243,7 +259,7 @@ class TestAnalysisAgent(Agent):
             )
             
         success =False
-        analysis = test_analysis_utils.run_with_retries(self.msg_thread,disable_run_test=True,print_callback=print_callback)
+        analysis, analysis_raw  = test_analysis_utils.run_with_retries(self.msg_thread,disable_run_test=True,print_callback=print_callback)
         task_output = analysis
         analysis_file = Path(f"{self.get_latest_test_analysis_output_dir()}/analysis.json")
 
@@ -423,12 +439,19 @@ class TestAnalysisAgent(Agent):
             close_logger(build_image_logger)
 
         success = True
+        exit_codes = []
         for golden in (False, True):
-            test_output, test_summary, test_success = self.run_test(golden)
+            test_output, test_summary, test_success, outputs = self.run_test(golden)
             tool_output += test_output
             summary += test_summary
             success = success and test_success
+            code = self._extract_exit_code_from_output(outputs)
+            exit_codes.append(code)
 
+        dual_valid, dual_msg = self._validate_swebench_dual_test(exit_codes[0], exit_codes[1], build_image_logger)
+        self.add_user_message(f"We have built docker image, run eval script, and check exit code\n{dual_msg}")
+        
+        success = success and dual_valid
         if success:
             # Push container to remote repository if DOCKER_REPOSITORY is set
             docker_repository = os.environ.get("DOCKER_REPOSITORY", "")
@@ -448,13 +471,71 @@ class TestAnalysisAgent(Agent):
 
         return tool_output, summary, success
 
+    def _extract_exit_code_from_output(self, output: str) -> int:
+        """
+        从测试输出中提取OMNIGRIL_EXIT_CODE
+        
+        Args:
+            output: 测试输出
+            
+        Returns:
+            exit_code: 退出码，如果无法提取则返回-1
+        """
+        match = re.search(r'OMNIGRIL_EXIT_CODE=(\d+)', output)
+        if match:
+            return int(match.group(1))
+        return -1
+
+    def _validate_swebench_dual_test(self, testonly_code: int,
+                                    testwithfix_code: int,
+                                    run_test_logger) -> tuple[bool, str]:
+        """
+        Validate SWEBench dual test conditions
+        
+        Args:
+            exit_code_without_patch: Exit code without patch applied
+            exit_code_with_patch: Exit code with patch applied
+            run_test_logger: Logger instance
+            
+        Returns:
+            (success, message): Whether validation passed and detailed message
+        """
+        code_msg = f"Exit code with/wo goldpatch: {testonly_code}/{testwithfix_code}"
+        run_test_logger.info(code_msg)
+
+        
+        # Check if exit code extraction failed
+        if testonly_code == -1:
+            msg = "TestOnly failed: Unable to extract OMNIGRIL_EXIT_CODE from output"
+            return False, msg
+        
+        if testwithfix_code == -1:
+            msg = "TestWithFix failed: Unable to extract OMNIGRIL_EXIT_CODE from output"
+            return False, msg
+        
+        # Validate dual conditions
+        without_patch_failed = (testonly_code != 0)
+        with_patch_succeeded = (testwithfix_code == 0)
+
+        if without_patch_failed and with_patch_succeeded:
+            return True, "Exitcode validation PASSED!"
+        else:
+            reasons=[]
+            reasons.append(code_msg)
+            if not without_patch_failed:
+                reasons.append(f"TestOnly eval should fail but passed")
+            if not with_patch_succeeded:
+                reasons.append(f"TestWithFix eval should pass but failed")
+            msg = f"SWEBench dual validation FAILED: {'; '.join(reasons)}"
+            return False, msg
+    
     def run_test(self, goldpatch: bool = True) -> tuple[str, str, bool]:
         tool_output = ""
         summary = ""
         success = False
 
-        patch = self.task.patch if goldpatch else self.task.test_patch
-        output_determinator = "testWithFix" if goldpatch else "testOnly"
+        patch = self.task.patch + "\n" + self.task.test_patch if goldpatch else self.task.test_patch
+        testname = self._golden_to_name(goldpatch)
         eval_script = test_analysis_utils.replace_heredoc_content(self.eval_script_skeleton, patch)
         self.run_test_num += 1
         self.reset_tool_sequence()
@@ -464,10 +545,10 @@ class TestAnalysisAgent(Agent):
         # test_image_name = f"{self.task_id}:latest_{self.setup_dockerfile_num}"
         test_image_name = self.image_tag()
         # test_container_name =  f"{self.task_id}:test_{self.run_test_num}"
-        test_container_name = f"{self.task_id}-test{self.run_test_num}-{output_determinator}"
+        test_container_name = f"{self.task_id}-test{self.run_test_num}-{testname}"
         instance_id = self.task_id
         container = None
-        test_output_path = f'{cur_test_dir}/test_output.txt'
+        test_output_path = f'{cur_test_dir}/test_output_{testname}.txt'
         try:
             container = build_container(self.client,test_image_name,test_container_name,instance_id,run_test_logger)
 
@@ -534,11 +615,9 @@ class TestAnalysisAgent(Agent):
             result = exec_run_with_timeout(container, "/bin/bash /eval.sh", timeout=self.timeout)
             test_output = result.decode("utf-8")
             
-            with open(test_output_path, "a") as f:
-                f.write(f"<{output_determinator}>\n")
+            with open(test_output_path, "w") as f:
                 f.write(test_output)
-                f.write(f"</{output_determinator}>\n")
-            run_test_logger.info(f"Test output for {instance_id} ({output_determinator}) written to {test_output_path}")
+            run_test_logger.info(f"Test output for {instance_id} ({testname}) written to {test_output_path}")
 
             # Get git diff after running eval script
             # git_diff_output_after = (
@@ -586,4 +665,4 @@ class TestAnalysisAgent(Agent):
             
             close_logger(run_test_logger)
         self.dump_tool_sequence(self.get_latest_test_analysis_output_dir())
-        return tool_output, summary, success
+        return tool_output, summary, success, test_output

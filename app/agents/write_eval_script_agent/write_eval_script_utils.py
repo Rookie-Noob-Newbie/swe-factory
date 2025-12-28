@@ -26,13 +26,12 @@ Your task is to generate an **evaluation script** that executes the given test f
 
 You will receive the following information:
 - **Collected environment details** from the **context retrieval agent** (if available), including dependencies, test execution commands, and any special setup steps.
-- **The generated Dockerfile** that defines the environment in which the tests will be executed.
 - **A list of test files** that must be executed, provided by the user.
 - **An evaluation script skeleton (`eval_script_skeleton`) that MUST be followed.
 - Guidance from the **test_analysis_agent** (if available). This agent will run your evaluation script and, if it finds any issues, provide specific feedback or guidance for you to improve the script.
 
 ### Your Responsibilities:
-1. Ensure the evaluation script properly activates the environment inside the Docker container.
+1. Ensure the evaluation script properly activates the `testbed` environment inside the Docker container.
 2. Apply the patch (we will try two: one only adds unittests and another adds unittests and fixes issue) before executing the tests.
 3. When available, use the correct test execution commands and setup steps collected by the context retrieval agent.
 4. If guidance from the test_analysis_agent is provided, update or improve your evaluation script according to its suggestions.
@@ -52,7 +51,7 @@ The script must execute the provided test files inside the specified Docker envi
 ### Important Notes:
 1. You must **execute only the specified target test files and unittests**, rather than running all tests in the repository.  
    - Running all tests can be highly time-consuming and unnecessary.  
-   - Ensure that only the **required test cases** are executed.  
+   - Ensure that only the **required test files** are executed. You may refer to golden patch, but please remain some already passed tests other than fixed in golden patch.
 
 2. **Optimize execution efficiency by combining multiple test commands into a single command** whenever possible.  
    - Avoid running multiple separate test commands if they can be executed in one batch.  
@@ -75,12 +74,9 @@ The script must execute the provided test files inside the specified Docker envi
     -Example structure:
     git apply -v - <<'EOF_114329324912'\n[CONTENT OF TEST PATCH]\nEOF_114329324912
 
-6. You MUST capture the exit code immediately after running the tests using ``rc=$? '', and then echo: ``OMNIGRIL_EXIT_CODE=$rc''. This ensures the judge can determine whether the tests passed successfully.
+6. You MUST capture the exit code immediately after running the tests using `rc=$?`, and then echo: `OMNIGRIL_EXIT_CODE=$rc`. This ensures the judge can determine whether the tests passed successfully. Also, you MUST NOT include `set -e`, which will truncate out error code.
 
-7. You MUST print ">>>>> Start Test Output" exactly before test (pytest for example), and ">>>>> End Test Output" after it.
-
-Eval script skeleton:
-{eval_script_skeleton}
+7. You MUST print ">>>>> Start Test Output" exactly before test (pytest for example), and ">>>>> End Test Output" after it, we will extract output with it after run.
 
 ### **Example Format:**
 The script must be wrapped in `<script>` tags. Example:
@@ -89,19 +85,19 @@ The script must be wrapped in `<script>` tags. Example:
 #!/bin/bash
 # activate environment
 . /opt/conda/etc/profile.d/conda.sh
-conda activate testbed
+conda activate testbed # already created by base image
 cd /testbed
 
 # Required: apply test patch to update target tests
-git apply -v - <<'EOF_114329324912'
+git apply -v --allow-empty - <<'EOF_114329324912'
 [CONTENT OF TEST PATCH]
 EOF_114329324912
 
 # Required: run target tests files instead of all tests!
-echo >>>>> Start Test Output
+echo ">>>>> Start Test Output"
 pytest --no-header -rA --tb=no -p no:cacheprovider -n4 mypy/test/testcheck.py::TypeCheckSuite::check-functions.test mypy/test/testcheck.py::TypeCheckSuite::check-redefine.test
-rc=$?            #Required, save exit code
-echo >>>>> End Test Output
+rc=$? # Required, save exit code
+echo ">>>>> End Test Output"
 echo "OMNIGRIL_EXIT_CODE=$rc" #Required, echo test status
 </script>
 """
@@ -147,9 +143,6 @@ The script must execute the provided test files inside the specified Docker envi
     - For each resource that needs to be added, use wget  with the -O <path> (or --output-document=<path>) flag to download it directly into its target location, overwriting any existing file at that path.
     - For each resource that needs to be removed, issue a rm -f <path> command to delete it from the working tree.
     - Integrate these download/remove commands into your Eval script skeleton (immediately after resetting the tests), and adjust the placement or ordering in the skeleton if necessary to ensure the repo ends up in the correct state before and after applying the test patch
-    
-Eval script skeleton:
-{eval_script_skeleton}
 
 ### **Example Format:**
 The script must be wrapped in `<script>` tags. Example:

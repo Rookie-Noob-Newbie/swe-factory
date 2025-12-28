@@ -27,7 +27,7 @@ class WriteEvalScriptAgent(Agent):
         task: Task,
         output_dir: str,
         repo_basic_info: str,
-        disable_download_test_resources:bool = False,
+        disable_download_test_resources:bool = True,
     ):
         super().__init__(agent_id = "WriteEvalScriptAgent")
         self.task = task
@@ -88,12 +88,14 @@ class WriteEvalScriptAgent(Agent):
     def get_initial_eval_script_skeleton(self):
         HEREDOC_DELIMITER = "EOF_114329324912"
         test_files = self.test_files
-        reset_test_files = ['"' + t + '"' for t in test_files]
+        reset_test_file_list = ['"' + t + '"' for t in test_files]
+        reset_test_files = ' '.join(reset_test_file_list)
         # Reset test files to the state they should be in before the patch.
-        reset_tests_command = f"git checkout {self.task.commit} {' '.join(reset_test_files)}"
+        reset_tests_command = f"git checkout {self.task.commit} {reset_test_files}"
         apply_test_patch_command = (
-            f"git apply -v - <<'{HEREDOC_DELIMITER}'\n[CONTENT OF TEST PATCH]\n{HEREDOC_DELIMITER}"
+            f"git apply -v - <<{HEREDOC_DELIMITER}\n[CONTENT OF TEST PATCH]\n{HEREDOC_DELIMITER}"
         )
+        run_pytest_command = "pytest " + reset_test_files
         # apply_test_patch_command = (
         #     f"git apply -v - <<'{HEREDOC_DELIMITER}'\n{self.test_patch}\n{HEREDOC_DELIMITER}"
         # )
@@ -102,12 +104,13 @@ class WriteEvalScriptAgent(Agent):
             f"cd /testbed",
         ]
         eval_commands += [
-            reset_tests_command,
+            # reset_tests_command,
             *self.download_test_resources_commands,
             apply_test_patch_command,
-            reset_tests_command,  # Revert tests after done
+            run_pytest_command,
+            # reset_tests_command,  # Revert tests after done
         ]
-        return "\n".join(["#!/bin/bash", "set -uxo pipefail"] + eval_commands) + "\n"
+        return "\n".join(["#!/bin/bash"] + eval_commands) + "\n"
 
     def get_latest_eval_script_skeleton(self) -> str:
         """Read the latest saved skeleton to avoid long scripts."""

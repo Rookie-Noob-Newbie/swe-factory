@@ -35,8 +35,8 @@ You will receive the following information:
 2. Ensure all dependencies are installed and correctly configured.
 3. Configure the system to allow the provided test files to be executed.
 4. Generate a complete, structured **Dockerfile** based on the given information; edit on Dockerfile should consider reuse on layers.
-
-Your **Dockerfile must be robust and reproducible**, ensuring that the tests run successfully in an isolated container."""
+5. NEVER run tests, it will be done in eval script.
+"""
 
 
 
@@ -69,18 +69,18 @@ RUN conda create -n testbed python={python_version} -y; \\
  pip config set global.index-url http://mirrors.cloud.aliyuncs.com/pypi/simple/; \\
  pip config set global.trusted-host mirrors.cloud.aliyuncs.com; \\
 </dockerfile>
-
-- It provides conda on debian 12, a python env named `testbed` with given version, and change mirror source.
-- 
-- Available python versions include 2.7 and 3.5 to 3.14. Conda does not provide other versions.
-- If a different base image is really necessary, please also change mirror to aliyun.
-
+  - It provides conda on debian 12, a python env named `testbed` with given version, and change mirror source.
+  - Available python versions include 2.7 and 3.5 to 3.14. Conda does not provide other versions. Chose **best fit version** rather than minimal.
+  - If a different base image is really necessary, please also change mirror to aliyun.
+  - It use a conda environment, so all python/pip related run must run with `bash -lc` or `. /opt/conda/etc/profile.d/conda.sh && conda activate testbed`
+  - If you are rewriting because of python version issue, you MUST NOT create new conda env; instead change base image version.
+  - Simply ignore conda update / pip update warning, unless it is root cause of error
 5. It is recommended to use `COPY` to copy local files into the Docker container, and use of well-known basic image (python, miniforge), to avoid network stuff.
 6. DO NOT run tests in the Dockerfile**.  
-   - Do not include commands like `npm test`, `pytest`, or `mvn test` in the Dockerfile.  
+   - Do not include commands like `npm test`, `pytest`, or `mvn test`, or `python -m import xxx` in the Dockerfile.  
    - Tests will be executed separately, and running them during the Docker build stage is an unnecessary overhead.
    - You can skip tests during environment setup because this is not your job.
-7. If there is a reference Dockerfile, use it as a guideline.   
+7. If there is a reference Dockerfile, use it as a guideline.
 8. Do not use ENTRYPOINT.
 9. When setting up dependencies for the target repository (e.g., `torch 3.33`), **DO NOT** install the package directly from external registries (e.g., PyPI, NPM, Maven Central) using commands like `pip install <package>` (e.g., `pip install torch`).  
    Instead, **you can install the repository itself in development mode** (`pip install -e .` for Python, `npm link` for Node.js, or `mvn install` for Java) to ensure that the local repository’s code is correctly referenced during execution.
@@ -94,19 +94,20 @@ The Dockerfile must be wrapped in `<dockerfile>` tags. Example:
 <dockerfile>
 # Base image specification. Defines the foundation OS and python version for the container (Required)
 FROM swefactory-python-3.12
-# Fetch source code. same as git clone {{task.repo_name}} but avoid network stuff; guarantee to exist
+# Fetch source code. same as git clone {{task.repo_name}} && git reset --hard {{task.commit}} but avoid network stuff; guarantee to ready
 COPY repo /testbed
 # set default workdir to testbed. (Required)
 WORKDIR /testbed/
-# Checkouts to the target version
-git reset --hard {{task.commit}} && git remote remove origin
 # The lines above should NEVER change (except python version), so as to reuse layers.
 
 # Install package and environment manager required by the repo. (Example)
-RUN apt install -y g++
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt install -qq -y g++
 # Target Project setup. Configures it, and installs project-specific dependencies (Example)
 # Note for conda, `-lc` is required for env activate; multicommand can split by `;`
-RUN bash -lc 'pip install -r requirements.txt; pip install -e .'
+RUN bash -lc 'pip install -r requirements.txt' # install requirements from context
+RUN bash -lc 'pip install -e' # install self; important for running test
+RUN bash -lc 'pip install pytest "poetry>=1,<2"' # special char need quote
 </dockerfile>
 """
 

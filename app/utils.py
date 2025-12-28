@@ -128,7 +128,7 @@ def clone_repo_and_checkout(
         shutil.rmtree(cloned_dir)
     clone_repo(clone_link, cloned_dir)
     if commit_hash != "":
-        checkout_cmd = ["git", "checkout", commit_hash]
+        checkout_cmd = ["git", "reset", "--hard", commit_hash]
         with cd(cloned_dir):
             run_command(checkout_cmd)
     # return cloned_dir
@@ -340,8 +340,8 @@ def parse_function_invocation(
 
     return function_name, arguments
 
-def extract_test_patch(patch: str) -> str:
-    """extract test files in git patch, with path like tests"""
+def extract_test_patch(patch: str) -> tuple[str, str]:
+    """extract golden and test patch from all patch, using filename pattern"""
     def is_test_file(file_path: str) -> bool:
         """Determine if a file path represents a test file."""
         test_keywords = ["test", "e2e", "spec"]
@@ -349,18 +349,25 @@ def extract_test_patch(patch: str) -> str:
         return any(keyword in path_lower for keyword in test_keywords)
     
     if not patch:
-        return ""
+        return "", ""
     
     lines = patch.split('\n')
     test_patches = []
+    golden_patches = []
     current_patch = []
+
     is_in_test_file = False
+    is_in_file = False
     
     for line in lines:
         if line.startswith('diff --git'):
-            if is_in_test_file and current_patch:
-                test_patches.append('\n'.join(current_patch))
-            
+            is_in_file = True
+            if current_patch:
+                content = '\n'.join(current_patch)
+                if is_in_test_file and current_patch:
+                    test_patches.append(content)
+                else:
+                    golden_patches.append(content)
             current_patch = [line]
             parts = line.split()
             if len(parts) >= 4:
@@ -369,13 +376,13 @@ def extract_test_patch(patch: str) -> str:
             else:
                 is_in_test_file = False
         else:
-            if current_patch or is_in_test_file:
+            if is_in_file:
                 current_patch.append(line)
     
     if is_in_test_file and current_patch:
         test_patches.append('\n'.join(current_patch))
     
-    return '\n'.join(test_patches)
+    return '\n'.join(golden_patches), '\n'.join(test_patches)
 
 
 def git_diff_commits(repo_path: str, base_commit: str, target_commit: str) -> str:
@@ -405,7 +412,7 @@ def git_diff_commits(repo_path: str, base_commit: str, target_commit: str) -> st
                 text=True,
                 check=True
             )
-            return result.stdout
+        return result.stdout
     except subprocess.CalledProcessError as e:
         log_and_print(f"Error generating diff between {base_commit} and {target_commit}: {e}")
         return ""

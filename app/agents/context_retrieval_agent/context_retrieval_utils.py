@@ -564,7 +564,7 @@ Only investigate the following areas **if explicitly requested** by the calling 
 2. **Test Execution Information**
    - **Precise test commands**: Focus on specific commands or instructions for running individual tests or specific test files, not just commands for running all tests. Look for test commands in documentation like `README.md`, `CONTRIBUTING.md`, `tests/README.md`, etc.
    - **CI/CD configurations**: Look into files like `.github/workflows/`, `.ci.yml`, `travis.yml`, or other pipeline configuration files that might include commands for running tests or specific test environments.
-   - **Test execution in context**: Extract any specific instructions about running tests, such as flags for specific test cases, test suites, or environments. Also, pay attention to dependencies relevant to testing like test frameworks (e.g., `pytest`, `JUnit`, `Mocha`) and their versions.
+   - **Test execution in context**: Extract any specific instructions about running tests, such as flags for specific test cases, test suites, or environments. Also, pay attention to dependencies relevant to testing like test frameworks (e.g., `pytest`, `JUnit`, `Mocha`), env frameworks (e.g. poetry, uv), and their versions.
 
 3. **Organize Results for other agents**
    - Present findings in a structured way so they can be used to generate the Dockerfile and evaluation script accurately. The **final report** should:

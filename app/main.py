@@ -670,7 +670,7 @@ def run_task_group(task_group_id: str, task_group_items: list[RawTask]) -> None:
 
 
 
-def run_task_in_subprocess(task: RawTask, timeout_seconds: int = 5400) -> None:
+def run_task_in_subprocess(task: RawTask, timeout_seconds: int = 1800) -> None:
     """
     Run a task in a subprocess, with hard timeout control.
     """
@@ -734,7 +734,7 @@ def run_raw_task(
 
     return run_ok
 
-def generate_patch(task: SweTask) -> None:
+def generate_patch(task: SweTask, task_output_dir:str) -> bool:
     """
     Generate patch from commit and solution commit; skip if empty.
     Updates task.patch with the generated diff.
@@ -745,7 +745,7 @@ def generate_patch(task: SweTask) -> None:
     # Only generate patch for SweTask instances
     if not hasattr(task, 'solution_commit') or not hasattr(task, 'commit'):
         log.log_and_always_print(f"Task {task.task_id} does not have commit info, skipping patch generation")
-        return
+        return False
     
     base_commit = task.commit
     solution_commit = task.solution_commit
@@ -753,8 +753,7 @@ def generate_patch(task: SweTask) -> None:
     # Skip if either commit is empty or they are the same
     if not base_commit or not solution_commit or base_commit == solution_commit:
         log.log_and_always_print(f"Task {task.task_id}: No patch to generate (commits are empty or identical)")
-        task.patch = ""
-        return
+        return False
     
     # Generate the patch using git diff
     log.log_and_always_print(f"Task {task.task_id}: Generating patch from {base_commit[:8]} to {solution_commit[:8]}")
@@ -764,68 +763,73 @@ def generate_patch(task: SweTask) -> None:
     patch = apputils.git_diff_commits(repo_path, base_commit, solution_commit)
     if patch == "":
         log.log_and_always_print(f"Task {task.task_id}: No patch to generate (commits not found)")
-        return
+        return False
 
-    test_patch = apputils.extract_test_patch(patch)
-    task.patch = patch
+    # before it, task patch remains
+    golden_patch, test_patch = apputils.extract_test_patch(patch)
+    task.patch = golden_patch
     task.test_patch = test_patch
     # Also update task_info dictionary so agents_manager gets the updated values
     if hasattr(task, 'task_info'):
-        task.task_info['patch'] = patch
+        task.task_info['patch'] = golden_patch
         task.task_info['test_patch'] = test_patch
     log.log_and_always_print(f"Task {task.task_id}: Generated patch ({len(patch)} bytes)")
+    # Update meta.json with the generated patch and test_patch
+    try:
+        meta_file = pjoin(task_output_dir, "meta.json")
+        if os.path.exists(meta_file):
+            with open(meta_file, 'r') as f:
+                meta = json.load(f)
+            meta['task_info']['patch'] = task.patch
+            meta['task_info']['test_patch'] = task.test_patch
+            with open(meta_file, 'w') as f:
+                json.dump(meta, f, indent=4)
+    except Exception:
+        log.log_and_always_print(f"Task {task.task_id}: Metadata file not found or invalid!")
+    return True
 
 
 def do_inference(
     python_task: SweTask,
     task_output_dir: str,
     print_callback: Callable[[dict], None] | None = None,
-) -> bool:
+) -> bool:      
     client = None
-    if not getattr(globals, "disable_all_docker", False):
-        client = docker.from_env()
-    apputils.create_dir_if_not_exists(task_output_dir)
+    run_ok = False
+    try: 
+        if not getattr(globals, "disable_all_docker", False):
+            client = docker.from_env()
+        apputils.create_dir_if_not_exists(task_output_dir)
+        
+        # Create task_repo_dir inside task_output_dir
+        task_repo_dir = pjoin(task_output_dir, "repo")
+        apputils.create_dir_if_not_exists(task_repo_dir)
+        
+        # Set the paths on the task
+        python_task.repo_path = task_repo_dir
+        python_task.task_output_dir = task_output_dir
+        
+        # Clone and checkout the repository
+        commit_hash = python_task.commit
+        apputils.clone_repo_and_checkout(python_task.repo_cache_path, commit_hash, python_task.project_path)
+        
+        # Always try generate first, if fail try existing patch
+        succeed = generate_patch(python_task, task_output_dir)
+        print(python_task.patch)
+        if not succeed and not python_task.patch.strip():
+            log.log_and_always_print(f"Task {python_task.task_id}: Empty gold patch!")
+            raise RuntimeError("Empty gold patch")
+        
+        logger.add(
+            pjoin(task_output_dir, "info.log"),
+            level="DEBUG",
+            format=(
+                "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level>"
+                " | <level>{message}</level>"
+            ),
+        )
     
-    # Create task_repo_dir inside task_output_dir
-    task_repo_dir = pjoin(task_output_dir, "repo")
-    apputils.create_dir_if_not_exists(task_repo_dir)
-    
-    # Set the paths on the task
-    python_task.repo_path = task_repo_dir
-    python_task.task_output_dir = task_output_dir
-    
-    # Clone and checkout the repository
-    commit_hash = python_task.commit
-    apputils.clone_repo_and_checkout(python_task.repo_cache_path, commit_hash, python_task.project_path)
-    
-    # Generate patch if task has solution_commit and patch is empty
-    if hasattr(python_task, 'solution_commit') and hasattr(python_task, 'patch'):
-        if not python_task.patch or python_task.patch.strip() == "":
-            generate_patch(python_task)
-            if python_task.patch == "":
-                return False
-            # Update meta.json with the generated patch and test_patch
-            meta_file = pjoin(task_output_dir, "meta.json")
-            if os.path.exists(meta_file):
-                with open(meta_file, 'r') as f:
-                    meta = json.load(f)
-                meta['task_info']['patch'] = python_task.patch
-                meta['task_info']['test_patch'] = python_task.test_patch
-                with open(meta_file, 'w') as f:
-                    json.dump(meta, f, indent=4)
-    logger.add(
-        pjoin(task_output_dir, "info.log"),
-        level="DEBUG",
-        format=(
-            "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level>"
-            " | <level>{message}</level>"
-        ),
-    )
- 
-    start_time = datetime.now()
- 
-     
-    try:
+        start_time = datetime.now()
         agents_manager = AgentsManager(python_task,
                                         task_output_dir,
                                         client,
@@ -840,19 +844,12 @@ def do_inference(
                                         skip_test_analysis = globals.skip_test_analysis,
                                         )
         agents_manager.run_workflow()
-        # Remove docker image after workflow finishes to prevent disk usage growth
-        if client and 'test_analysis_agent' in agents_manager.agents_dict:
-            from app.agents.test_analysis_agent.docker_utils import remove_image
-            image_name = agents_manager.agents_dict['test_analysis_agent'].image_tag()
-            try:
-                remove_image(client, image_name)
-                logger.info(f"Removed docker image {image_name} after task completion.")
-            except Exception as e:
-                logger.error(f"Failed to remove docker image {image_name}: {e}")
         run_ok = True
         end_time = datetime.now()
  
         dump_cost(start_time, end_time, task_output_dir, python_task.project_path)
+    except Exception as e:
+        log.log_and_always_print(f"Task {python_task.task_id}: {e}")
     finally:
         # python_task.reset_project()
         python_task.remove_project()
