@@ -670,7 +670,7 @@ def run_task_group(task_group_id: str, task_group_items: list[RawTask]) -> None:
 
 
 
-def run_task_in_subprocess(task: RawTask, timeout_seconds: int = 1800) -> None:
+def run_task_in_subprocess(task: RawTask, timeout_seconds: int = 4800) -> None:
     """
     Run a task in a subprocess, with hard timeout control.
     """
